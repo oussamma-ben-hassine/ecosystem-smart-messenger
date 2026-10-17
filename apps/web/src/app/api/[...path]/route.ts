@@ -12,44 +12,25 @@ async function proxyRequest(request: NextRequest, pathParts: string[]) {
   const searchParams = request.nextUrl.search;
   const targetUrl = `${backendBase}/api/${path}${searchParams}`;
 
-  const hopByHopHeaders = [
-    'host',
-    'connection',
-    'content-length',
-    'keep-alive',
-    'proxy-authenticate',
-    'proxy-authorization',
-    'te',
-    'trailer',
-    'transfer-encoding',
-    'upgrade',
-  ];
+  const headers: Record<string, string> = {};
+  const auth = request.headers.get('authorization');
+  if (auth) headers['authorization'] = auth;
+  const contentType = request.headers.get('content-type');
+  if (contentType) headers['content-type'] = contentType;
+  const accept = request.headers.get('accept');
+  if (accept) headers['accept'] = accept;
 
-  const headers = new Headers();
-  request.headers.forEach((value, key) => {
-    if (!hopByHopHeaders.includes(key.toLowerCase())) {
-      headers.set(key, value);
-    }
-  });
-
-  const fetchOptions: RequestInit = {
+  const fetchOptions: any = {
     method: request.method,
     headers,
   };
 
   if (['POST', 'PUT', 'PATCH'].includes(request.method)) {
+    fetchOptions.duplex = 'half';
     try {
-      const contentType = request.headers.get('content-type') || '';
-      if (contentType.includes('application/json') || contentType.includes('text/')) {
-        const text = await request.text();
-        if (text) {
-          fetchOptions.body = text;
-        }
-      } else {
-        const buffer = await request.arrayBuffer();
-        if (buffer && buffer.byteLength > 0) {
-          fetchOptions.body = Buffer.from(buffer);
-        }
+      const text = await request.text();
+      if (text) {
+        fetchOptions.body = text;
       }
     } catch {
       // Body may be empty
@@ -75,6 +56,7 @@ async function proxyRequest(request: NextRequest, pathParts: string[]) {
       {
         error: 'Backend API Gateway Unavailable',
         message: err.message,
+        cause: err.cause ? String(err.cause) : undefined,
         target: targetUrl,
       },
       { status: 502 }
