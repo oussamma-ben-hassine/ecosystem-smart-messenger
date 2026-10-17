@@ -2302,7 +2302,7 @@ export default function MessengerShell() {
                   type="text"
                   value={profileBio}
                   onChange={(e) => setProfileBio(e.target.value)}
-                  placeholder="Ex: Disponible"
+                  placeholder="Disponible"
                   className="w-full px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200 text-sm text-slate-800 focus:outline-none focus:border-indigo-500"
                 />
               </div>
@@ -2718,7 +2718,7 @@ export default function MessengerShell() {
               <input
                 type="text"
                 required
-                placeholder="Ex: Projet Écosystème"
+                placeholder="Nom de la discussion ou du groupe"
                 value={newConvName}
                 onChange={(e) => setNewConvName(e.target.value)}
                 className="w-full px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200 text-sm"

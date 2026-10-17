@@ -1,7 +1,14 @@
 import { Injectable } from '@nestjs/common';
+import { AuthService } from '../auth/auth.service';
+import { CallsService } from '../calls/calls.service';
 
 @Injectable()
 export class AdminService {
+  constructor(
+    private readonly authService: AuthService,
+    private readonly callsService: CallsService
+  ) {}
+
   async getSystemHealth() {
     const checks: Record<string, { status: string; url?: string; error?: string }> = {};
 
@@ -44,15 +51,17 @@ export class AdminService {
       url: process.env.LIVEKIT_URL || 'wss://messenger.oussamma.tn/livekit',
     };
 
+    const connectedUsers = this.authService.getConnectedUsers();
+    const allProfiles = this.authService.getAllProfiles();
+
     return {
       status: 'operational',
       timestamp: new Date().toISOString(),
       integrations: checks,
       metrics: {
-        activeUsers: 1,
-        activeRooms: 3,
+        activeUsers: connectedUsers.length,
+        totalRegisteredProfiles: allProfiles.length,
         totalCallsToday: 0,
-        storageQuotaUsedMB: 12.4,
       },
     };
   }
