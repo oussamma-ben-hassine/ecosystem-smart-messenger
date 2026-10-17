@@ -5,6 +5,10 @@ export const metadata: Metadata = {
   title: 'Ecosystem Smart Messenger',
   description: 'Messagerie instantanée intelligente, sécurisée E2EE et connectée à votre écosystème',
   manifest: '/manifest.json',
+  icons: {
+    icon: '/icon-192.png',
+    apple: '/icon-192.png',
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
@@ -28,9 +32,6 @@ export default function RootLayout({
 }) {
   return (
     <html lang="fr" className="dark">
-      <head>
-        <link rel="apple-touch-icon" href="/icon-192.png" />
-      </head>
       <body className="font-sans antialiased bg-slate-950 text-slate-100 min-h-screen">
         {children}
       </body>
