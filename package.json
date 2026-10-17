@@ -7,8 +7,9 @@
     "packages/*"
   ],
   "scripts": {
-    "build:web": "npm run build --workspace=@messenger/web",
-    "build:api": "npm run build --workspace=@messenger/api",
+    "build:packages": "npm run build --workspace=@messenger/types && npm run build --workspace=@messenger/auth && npm run build --workspace=@messenger/drive-connector && npm run build --workspace=@messenger/ai-connector && npm run build --workspace=@messenger/matrix",
+    "build:web": "npm run build --workspace=@messenger/types && npm run build --workspace=@messenger/web",
+    "build:api": "npm run build:packages && npm run build --workspace=@messenger/api",
     "build": "npm run build:api && npm run build:web",
     "start:web": "npm run start --workspace=@messenger/web",
     "start:api": "npm run start:prod --workspace=@messenger/api"
