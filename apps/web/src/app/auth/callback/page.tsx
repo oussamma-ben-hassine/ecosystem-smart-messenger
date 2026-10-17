@@ -1,18 +1,20 @@
 'use client';
 
-import { useEffect, useState, Suspense } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 
-function CallbackContent() {
+export default function AuthCallbackPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [errorMessage, setErrorMessage] = useState('');
 
   useEffect(() => {
-    const code = searchParams.get('code');
-    const state = searchParams.get('state');
+    if (typeof window === 'undefined') return;
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const code = urlParams.get('code');
+    const state = urlParams.get('state');
 
     if (!code) {
       setStatus('error');
@@ -48,10 +50,10 @@ function CallbackContent() {
     }
 
     handleExchange();
-  }, [searchParams, router]);
+  }, [router]);
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen px-4 text-center">
+    <div className="flex flex-col items-center justify-center min-h-screen px-4 text-center bg-slate-950 text-slate-100">
       <div className="w-full max-w-sm p-6 bg-slate-900 border border-slate-800 rounded-2xl shadow-xl flex flex-col items-center">
         {status === 'loading' && (
           <>
@@ -84,17 +86,5 @@ function CallbackContent() {
         )}
       </div>
     </div>
-  );
-}
-
-export default function AuthCallbackPage() {
-  return (
-    <Suspense fallback={
-      <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
-      </div>
-    }>
-      <CallbackContent />
-    </Suspense>
   );
 }
