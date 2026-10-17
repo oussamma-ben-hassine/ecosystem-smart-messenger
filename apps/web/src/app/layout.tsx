@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
 
+export const dynamic = 'force-dynamic';
+
 export const metadata: Metadata = {
   title: 'Ecosystem Smart Messenger',
   description: 'Messagerie instantanée intelligente, sécurisée E2EE et connectée à votre écosystème',

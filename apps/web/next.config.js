@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  reactStrictMode: true,
+  reactStrictMode: false,
   output: 'standalone',
   typescript: {
     ignoreBuildErrors: true,
@@ -8,13 +8,7 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
-  transpilePackages: [
-    '@messenger/types',
-    '@messenger/auth',
-    '@messenger/drive-connector',
-    '@messenger/ai-connector',
-    '@messenger/matrix',
-  ],
+  transpilePackages: ['@messenger/types'],
   images: {
     remotePatterns: [
       {
