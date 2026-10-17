@@ -2,6 +2,13 @@
 const nextConfig = {
   reactStrictMode: true,
   output: 'standalone',
+  transpilePackages: [
+    '@messenger/types',
+    '@messenger/auth',
+    '@messenger/drive-connector',
+    '@messenger/ai-connector',
+    '@messenger/matrix',
+  ],
   images: {
     remotePatterns: [
       {
