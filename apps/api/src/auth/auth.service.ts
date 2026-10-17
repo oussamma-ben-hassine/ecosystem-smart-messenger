@@ -346,9 +346,6 @@ export class AuthService {
       } catch {}
     }
 
-    const first = Array.from(this.profiles.values())[0];
-    if (first) return first;
-
     return {
       id: 'guest-session',
       ssoSub: 'guest-session',

@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Headers, Param } from '@nestjs/common';
+import { Controller, Post, Body, Headers, Param, UnauthorizedException } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { CallsService } from './calls.service';
 import { AuthService } from '../auth/auth.service';
@@ -18,7 +18,9 @@ export class CallsController {
     @Headers('authorization') authHeader?: string
   ) {
     const token = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : undefined;
+    if (!token) throw new UnauthorizedException('Connexion SSO requise pour les appels');
     const user = await this.authService.validateToken(token);
+    if (!user || user.id === 'guest-session') throw new UnauthorizedException('Connexion SSO requise pour les appels');
 
     return this.callsService.createCallToken(
       body.roomName || 'aura-room-general',

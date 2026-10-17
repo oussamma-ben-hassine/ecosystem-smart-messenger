@@ -44,6 +44,11 @@ export class AuthController {
     @Headers('authorization') authHeader?: string
   ) {
     const token = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : undefined;
+    if (!token) return { ok: false, error: 'Unauthorized' };
+    const currentUser = await this.authService.validateToken(token);
+    if (!currentUser || currentUser.id === 'guest-session') {
+      return { ok: false, error: 'Unauthorized' };
+    }
     return this.authService.recordHeartbeat(token, body);
   }
 
@@ -51,8 +56,10 @@ export class AuthController {
   @ApiOperation({ summary: 'Lister les utilisateurs connectés en temps réel' })
   async getOnlineUsers(@Headers('authorization') authHeader?: string) {
     const token = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : undefined;
-    const currentUser = token ? await this.authService.validateToken(token) : undefined;
-    return this.authService.getConnectedUsers(currentUser?.id);
+    if (!token) return [];
+    const currentUser = await this.authService.validateToken(token);
+    if (!currentUser || currentUser.id === 'guest-session') return [];
+    return this.authService.getConnectedUsers(currentUser.id);
   }
 
   @Put('profile')
@@ -68,6 +75,9 @@ export class AuthController {
     @Headers('authorization') authHeader?: string
   ) {
     const token = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : undefined;
+    if (!token) throw new UnauthorizedException('Non authentifié');
+    const currentUser = await this.authService.validateToken(token);
+    if (!currentUser || currentUser.id === 'guest-session') throw new UnauthorizedException('Non authentifié');
     return this.authService.updateProfile(token, body || {});
   }
 
@@ -82,7 +92,14 @@ export class AuthController {
   @ApiOperation({ summary: 'Récupérer le profil connecté' })
   async me(@Headers('authorization') authHeader?: string) {
     const token = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : undefined;
-    return this.authService.validateToken(token);
+    if (!token) {
+      throw new UnauthorizedException('Non connecté');
+    }
+    const profile = await this.authService.validateToken(token);
+    if (!profile || profile.id === 'guest-session') {
+      throw new UnauthorizedException('Session expirée ou invalide');
+    }
+    return profile;
   }
 
   @Get('profiles')

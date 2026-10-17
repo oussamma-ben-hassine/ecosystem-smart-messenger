@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Headers, Param, ForbiddenException } from '@nestjs/common';
+import { Controller, Post, Get, Body, Headers, Param, ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { AIService } from './ai.service';
 import { AuthService } from '../auth/auth.service';
@@ -13,7 +13,9 @@ export class AIController {
 
   private async resolveUserId(authHeader?: string): Promise<string> {
     const token = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : undefined;
+    if (!token) throw new UnauthorizedException('Connexion SSO requise');
     const user = await this.authService.validateToken(token);
+    if (!user || user.id === 'guest-session') throw new UnauthorizedException('Connexion SSO requise');
     return user.id;
   }
 

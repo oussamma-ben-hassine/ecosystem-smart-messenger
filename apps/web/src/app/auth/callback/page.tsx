@@ -40,6 +40,7 @@ function AuthCallbackContent() {
         const data = await res.json();
         localStorage.setItem('messenger_token', data.accessToken);
         localStorage.setItem('messenger_user', JSON.stringify(data.profile));
+        localStorage.removeItem('messenger_logged_out');
 
         setStatus('success');
         setTimeout(() => {

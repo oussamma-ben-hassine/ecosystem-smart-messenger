@@ -105,6 +105,7 @@ export default function MessengerShell() {
     matrixUserId: '',
   });
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [authChecked, setAuthChecked] = useState<boolean>(false);
   const [authModalOpen, setAuthModalOpen] = useState<boolean>(false);
   const [authLoading, setAuthLoading] = useState<boolean>(false);
   const [profileDisplayName, setProfileDisplayName] = useState<string>('');
@@ -246,38 +247,45 @@ export default function MessengerShell() {
 
   // Heartbeat function to report presence and retrieve currently online users
   const syncPresence = async (userToReport?: UserSessionProfile) => {
-    const active = userToReport || currentUser;
     const token = typeof window !== 'undefined' ? localStorage.getItem('messenger_token') : null;
+    if (!token) {
+      setOnlineUsers([]);
+      return;
+    }
+
+    const active = userToReport || currentUser;
+    if (!active.id || active.id === 'guest-session') {
+      return;
+    }
+
     const customAvatar = typeof window !== 'undefined' ? localStorage.getItem('messenger_custom_avatar') : null;
 
     try {
-      if (active.id && active.id !== 'guest-session') {
-        await fetch('/api/auth/heartbeat', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify({
-            id: active.id,
-            displayName: active.displayName,
-            username: active.username,
-            avatarUrl: customAvatar || active.avatarUrl,
-          }),
-        });
-      }
+      await fetch('/api/auth/heartbeat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          id: active.id,
+          displayName: active.displayName,
+          username: active.username,
+          avatarUrl: customAvatar || active.avatarUrl,
+        }),
+      });
 
       const res = await fetch('/api/auth/online', {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         const users: PresenceUser[] = await res.json();
-        setOnlineUsers(users);
+        setOnlineUsers(Array.isArray(users) ? users : []);
       }
     } catch {}
   };
 
-  // Initialize session, Service Worker, and saved real user data
+  // Initialize session, Service Worker, and verify SSO authentication
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
@@ -289,66 +297,91 @@ export default function MessengerShell() {
       setNotifPermission(Notification.permission);
     }
 
-    // Load persisted conversations & contacts if any
-    try {
-      const savedConvs = localStorage.getItem('oussama_conversations_v2') || localStorage.getItem('aura_conversations_v2');
-      const savedMsgs = localStorage.getItem('oussama_messages_v2') || localStorage.getItem('aura_messages_v2');
-      const savedFriends = localStorage.getItem('oussama_friends_v2') || localStorage.getItem('aura_friends_v2');
-      if (savedConvs) setConversations(JSON.parse(savedConvs));
-      if (savedMsgs) setMessagesByRoom(JSON.parse(savedMsgs));
-      if (savedFriends) setFriends(JSON.parse(savedFriends));
-    } catch {}
-
+    const isExplicitlyLoggedOut = localStorage.getItem('messenger_logged_out') === 'true';
     const storedToken = localStorage.getItem('messenger_token');
-    const storedUser = localStorage.getItem('messenger_user');
     const customAvatar = localStorage.getItem('messenger_custom_avatar');
 
-    let effectiveUser: UserSessionProfile | null = null;
-
-    if (storedUser) {
-      try {
-        const parsed = JSON.parse(storedUser);
-        if (customAvatar) parsed.avatarUrl = customAvatar;
-        setCurrentUser(parsed);
-        setProfileDisplayName(parsed.displayName || '');
-        setProfileBio(parsed.bio || '');
-        setIsAuthenticated(true);
-        effectiveUser = parsed;
-      } catch {}
+    if (isExplicitlyLoggedOut || !storedToken) {
+      setIsAuthenticated(false);
+      setCurrentUser({
+        id: '',
+        displayName: 'Non connecté',
+        username: 'invite',
+        avatarUrl: undefined,
+        bio: 'Connectez-vous via SSO',
+      });
+      setConversations([]);
+      setMessagesByRoom({});
+      setFriends([]);
+      setOnlineUsers([]);
+      setAuthChecked(true);
+      return;
     }
 
-    if (storedToken) {
-      fetch('/api/auth/me', {
-        headers: { Authorization: `Bearer ${storedToken}` },
+    fetch('/api/auth/me', {
+      headers: { Authorization: `Bearer ${storedToken}` },
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error('Unauthorized');
+        return res.json();
       })
-        .then((r) => (r.ok ? r.json() : null))
-        .then((profile) => {
-          if (profile && profile.id && profile.id !== 'guest-session') {
-            if (customAvatar) {
-              profile.avatarUrl = customAvatar;
-            }
-            setCurrentUser(profile);
-            setProfileDisplayName(profile.displayName || '');
-            setProfileBio(profile.bio || '');
-            setIsAuthenticated(true);
-            localStorage.setItem('messenger_user', JSON.stringify(profile));
-            syncPresence(profile);
+      .then((profile) => {
+        if (profile && profile.id && profile.id !== 'guest-session') {
+          if (customAvatar) {
+            profile.avatarUrl = customAvatar;
           }
-        })
-        .catch(() => {});
-    } else if (effectiveUser) {
-      syncPresence(effectiveUser);
-    } else {
-      syncPresence();
-    }
+          setCurrentUser(profile);
+          setProfileDisplayName(profile.displayName || '');
+          setProfileBio(profile.bio || '');
+          setIsAuthenticated(true);
+          localStorage.setItem('messenger_user', JSON.stringify(profile));
+          localStorage.removeItem('messenger_logged_out');
 
-    // Set up presence heartbeat interval every 8 seconds
+          // Load user's conversations and friends now that authenticated
+          try {
+            const savedConvs = localStorage.getItem('oussama_conversations_v2') || localStorage.getItem('aura_conversations_v2');
+            const savedMsgs = localStorage.getItem('oussama_messages_v2') || localStorage.getItem('aura_messages_v2');
+            const savedFriends = localStorage.getItem('oussama_friends_v2') || localStorage.getItem('aura_friends_v2');
+            if (savedConvs) setConversations(JSON.parse(savedConvs));
+            if (savedMsgs) setMessagesByRoom(JSON.parse(savedMsgs));
+            if (savedFriends) setFriends(JSON.parse(savedFriends));
+          } catch {}
+
+          syncPresence(profile);
+        } else {
+          throw new Error('Invalid session profile');
+        }
+      })
+      .catch(() => {
+        localStorage.removeItem('messenger_token');
+        localStorage.removeItem('messenger_user');
+        setIsAuthenticated(false);
+        setCurrentUser({
+          id: '',
+          displayName: 'Non connecté',
+          username: 'invite',
+          avatarUrl: undefined,
+          bio: 'Connectez-vous via SSO',
+        });
+        setConversations([]);
+        setMessagesByRoom({});
+        setFriends([]);
+        setOnlineUsers([]);
+      })
+      .finally(() => {
+        setAuthChecked(true);
+      });
+  }, []);
+
+  // Set up presence heartbeat interval every 8 seconds ONLY when user is authenticated
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    syncPresence();
     const interval = setInterval(() => {
       syncPresence();
     }, 8000);
-
     return () => clearInterval(interval);
-  }, []);
+  }, [isAuthenticated]);
 
   // Persist user's real conversations & contacts locally
   useEffect(() => {
@@ -593,14 +626,20 @@ export default function MessengerShell() {
   const handleLogout = async () => {
     const token = localStorage.getItem('messenger_token');
     try {
-      await fetch('/api/auth/logout', {
-        method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
+      if (token) {
+        await fetch('/api/auth/logout', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      }
     } catch {}
 
     localStorage.removeItem('messenger_token');
     localStorage.removeItem('messenger_user');
+    localStorage.removeItem('messenger_custom_avatar');
+    localStorage.removeItem('oussama_conversations_v2');
+    localStorage.removeItem('oussama_messages_v2');
+    localStorage.removeItem('oussama_friends_v2');
     localStorage.setItem('messenger_logged_out', 'true');
     setIsAuthenticated(false);
     setCurrentUser({
@@ -610,9 +649,12 @@ export default function MessengerShell() {
       avatarUrl: undefined,
       bio: 'Connectez-vous via SSO',
     });
+    setConversations([]);
+    setMessagesByRoom({});
+    setFriends([]);
+    setOnlineUsers([]);
     setSelectedRoomId(null);
     setMobileChatOpen(false);
-    syncPresence();
     triggerNotification('Déconnexion réussie', 'Vous avez été déconnecté de votre session Oussama Messenger.');
   };
 
@@ -2425,6 +2467,118 @@ export default function MessengerShell() {
       </div>
     </div>
   );
+
+  const renderAuthGateScreen = () => (
+    <div className="flex-1 flex flex-col items-center justify-center p-4 sm:p-6 bg-gradient-to-b from-slate-50 via-white to-indigo-50/40 overflow-y-auto">
+      <div className="w-full max-w-md p-6 sm:p-8 bg-white/95 backdrop-blur-xl border border-slate-200/90 rounded-3xl shadow-2xl shadow-indigo-500/10 flex flex-col items-center text-center space-y-6">
+        {/* Brand Icon */}
+        <div className="relative">
+          <div className="w-16 h-16 rounded-3xl bg-gradient-to-tr from-[#4F46E5] to-[#7C3AED] text-white flex items-center justify-center shadow-lg shadow-indigo-500/30">
+            <Sparkles className="w-8 h-8" />
+          </div>
+          <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-emerald-500 border-2 border-white flex items-center justify-center text-white shadow-xs">
+            <ShieldCheck className="w-3.5 h-3.5" />
+          </div>
+        </div>
+
+        {/* Title & Subtitle */}
+        <div className="space-y-2">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-50 text-indigo-700 text-[11px] font-bold tracking-wide">
+            <Shield className="w-3.5 h-3.5" />
+            Écosystème Oussama • Accès Sécurisé
+          </div>
+          <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+            Ecosystem Smart Messenger
+          </h1>
+          <p className="text-xs sm:text-sm text-slate-500 max-w-xs mx-auto leading-relaxed">
+            Pour accéder à vos messages chiffrés, vos contacts et vos assistants IA, veuillez vous connecter avec votre compte SSO.
+          </p>
+        </div>
+
+        {/* SSO Login Action */}
+        <div className="w-full space-y-3">
+          <button
+            onClick={handleSSOLoginRedirect}
+            disabled={authLoading}
+            className="w-full py-3.5 px-5 rounded-2xl bg-gradient-to-r from-[#4F46E5] to-[#6366F1] hover:from-[#4338CA] hover:to-[#4F46E5] active:scale-[0.98] text-white font-bold text-sm flex items-center justify-center gap-2.5 shadow-lg shadow-indigo-500/25 transition disabled:opacity-50"
+          >
+            {authLoading ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                <span>Connexion SSO en cours...</span>
+              </>
+            ) : (
+              <>
+                <LogIn className="w-5 h-5" />
+                <span>Se connecter avec le SSO</span>
+              </>
+            )}
+          </button>
+          <p className="text-[11px] text-slate-400">
+            Serveur d&apos;authentification : <span className="font-semibold text-slate-600">sso-a.oussamma.tn</span>
+          </p>
+        </div>
+
+        {/* Security / Ecosystem Features */}
+        <div className="w-full pt-4 border-t border-slate-100 grid grid-cols-3 gap-2 text-left">
+          <div className="p-2.5 rounded-2xl bg-slate-50/80 border border-slate-100 flex flex-col items-center text-center space-y-1">
+            <ShieldCheck className="w-4 h-4 text-emerald-600" />
+            <span className="text-[10px] font-bold text-slate-700">Chiffrement</span>
+            <span className="text-[9px] text-slate-400 leading-tight">Matrix & E2EE</span>
+          </div>
+          <div className="p-2.5 rounded-2xl bg-slate-50/80 border border-slate-100 flex flex-col items-center text-center space-y-1">
+            <Sparkles className="w-4 h-4 text-indigo-600" />
+            <span className="text-[10px] font-bold text-slate-700">Oussama IA</span>
+            <span className="text-[9px] text-slate-400 leading-tight">LiteLLM Intégré</span>
+          </div>
+          <div className="p-2.5 rounded-2xl bg-slate-50/80 border border-slate-100 flex flex-col items-center text-center space-y-1">
+            <Activity className="w-4 h-4 text-violet-600" />
+            <span className="text-[10px] font-bold text-slate-700">Temps Réel</span>
+            <span className="text-[9px] text-slate-400 leading-tight">Présence Live</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  if (!authChecked) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[100dvh] w-full bg-[#F8FAFC]">
+        <div className="w-14 h-14 rounded-3xl bg-gradient-to-tr from-[#4F46E5] to-[#7C3AED] text-white flex items-center justify-center shadow-lg shadow-indigo-500/20 mb-4 animate-pulse">
+          <Sparkles className="w-7 h-7" />
+        </div>
+        <Loader2 className="w-6 h-6 text-[#4F46E5] animate-spin mb-2" />
+        <p className="text-xs font-semibold text-slate-500">Vérification de la session SSO...</p>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div className="flex flex-col h-[100dvh] w-full bg-[#F8FAFC] text-slate-900 overflow-hidden select-none">
+        {/* Floating Real-time Toast Notifications */}
+        {toasts.length > 0 && (
+          <div className="fixed top-3 left-1/2 -translate-x-1/2 z-50 w-[92%] max-w-md space-y-2 pointer-events-none">
+            {toasts.map((t) => (
+              <div
+                key={t.id}
+                className="pointer-events-auto p-3.5 rounded-2xl bg-white/95 backdrop-blur-md border border-indigo-200 shadow-xl shadow-indigo-500/10 flex items-center gap-3"
+              >
+                <div className="w-10 h-10 rounded-xl bg-[#5B4FE9] text-white flex items-center justify-center shrink-0">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h4 className="text-xs font-extrabold text-slate-900 truncate">{t.title}</h4>
+                  <p className="text-xs text-slate-600 truncate mt-0.5">{t.body}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {renderAuthGateScreen()}
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-[100dvh] w-full bg-[#F8FAFC] text-slate-900 overflow-hidden select-none">
