@@ -48,7 +48,7 @@ export class DriveConnector {
   ): Promise<DriveFileMetadata> {
     const headers = await this.getAuthHeaders();
     const formData = new FormData();
-    const blob = fileBlob instanceof Blob ? fileBlob : new Blob([fileBlob], { type: mimeType });
+    const blob = fileBlob instanceof Blob ? fileBlob : new Blob([fileBlob as any], { type: mimeType });
     formData.append('file', blob, fileName);
     if (folderId) {
       formData.append('folder_id', folderId);
