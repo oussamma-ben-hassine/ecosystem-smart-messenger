@@ -45,6 +45,8 @@ import {
   ArrowUp,
   Camera,
   User,
+  Activity,
+  UserCheck,
 } from 'lucide-react';
 import {
   ONLINE_STORIES,
@@ -58,6 +60,7 @@ import {
   FriendContact,
   FriendRequestItem,
   AIMessageEntry,
+  PresenceUser,
 } from './auraData';
 
 type MainTab = 'messages' | 'friends' | 'ai' | 'settings';
@@ -86,7 +89,7 @@ export default function MessengerShell() {
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [mobileChatOpen, setMobileChatOpen] = useState<boolean>(false);
 
-  // User Auth & Session state (No mock user, populated from SSO or saved session)
+  // User Auth & Session state
   const [currentUser, setCurrentUser] = useState<UserSessionProfile>({
     id: '',
     displayName: 'Non connecté',
@@ -102,7 +105,10 @@ export default function MessengerShell() {
   const [profileBio, setProfileBio] = useState<string>('');
   const [savingProfile, setSavingProfile] = useState<boolean>(false);
 
-  // Conversations & Messages state (Empty by default, persisted in localStorage per user)
+  // Real-time online users presence (Users connected at the same time)
+  const [onlineUsers, setOnlineUsers] = useState<PresenceUser[]>([]);
+
+  // Conversations & Messages state
   const [conversations, setConversations] = useState<ConversationRoom[]>(INITIAL_CONVERSATIONS);
   const [messagesByRoom, setMessagesByRoom] = useState<Record<string, ChatMessageItem[]>>(INITIAL_MESSAGES);
   const [msgFilter, setMsgFilter] = useState<'all' | 'unread' | 'ai' | 'friends'>('all');
@@ -115,7 +121,7 @@ export default function MessengerShell() {
   const [newConvName, setNewConvName] = useState<string>('');
   const [newConvIsGroup, setNewConvIsGroup] = useState<boolean>(false);
 
-  // Friends / Contacts state (Empty by default, loaded from API / localStorage)
+  // Friends / Contacts state (Exclusive list of confirmed friends)
   const [friends, setFriends] = useState<FriendContact[]>(INITIAL_FRIENDS);
   const [friendRequests, setFriendRequests] = useState<FriendRequestItem[]>(INITIAL_FRIEND_REQUESTS);
   const [friendFilter, setFriendFilter] = useState<'all' | 'online' | 'favorites' | 'requests'>('all');
@@ -184,6 +190,39 @@ export default function MessengerShell() {
     );
   };
 
+  // Heartbeat function to report presence and retrieve currently online users
+  const syncPresence = async (userToReport?: UserSessionProfile) => {
+    const active = userToReport || currentUser;
+    const token = typeof window !== 'undefined' ? localStorage.getItem('messenger_token') : null;
+    const customAvatar = typeof window !== 'undefined' ? localStorage.getItem('messenger_custom_avatar') : null;
+
+    try {
+      if (active.id && active.id !== 'guest-session') {
+        await fetch('/api/auth/heartbeat', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            id: active.id,
+            displayName: active.displayName,
+            username: active.username,
+            avatarUrl: customAvatar || active.avatarUrl,
+          }),
+        });
+      }
+
+      const res = await fetch('/api/auth/online', {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (res.ok) {
+        const users: PresenceUser[] = await res.json();
+        setOnlineUsers(users);
+      }
+    } catch {}
+  };
+
   // Initialize session, Service Worker, and saved real user data
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -210,6 +249,8 @@ export default function MessengerShell() {
     const storedUser = localStorage.getItem('messenger_user');
     const customAvatar = localStorage.getItem('messenger_custom_avatar');
 
+    let effectiveUser: UserSessionProfile | null = null;
+
     if (storedUser) {
       try {
         const parsed = JSON.parse(storedUser);
@@ -218,6 +259,7 @@ export default function MessengerShell() {
         setProfileDisplayName(parsed.displayName || '');
         setProfileBio(parsed.bio || '');
         setIsAuthenticated(true);
+        effectiveUser = parsed;
       } catch {}
     }
 
@@ -236,10 +278,22 @@ export default function MessengerShell() {
             setProfileBio(profile.bio || '');
             setIsAuthenticated(true);
             localStorage.setItem('messenger_user', JSON.stringify(profile));
+            syncPresence(profile);
           }
         })
         .catch(() => {});
+    } else if (effectiveUser) {
+      syncPresence(effectiveUser);
+    } else {
+      syncPresence();
     }
+
+    // Set up presence heartbeat interval every 8 seconds
+    const interval = setInterval(() => {
+      syncPresence();
+    }, 8000);
+
+    return () => clearInterval(interval);
   }, []);
 
   // Persist user's real conversations & contacts locally
@@ -376,7 +430,7 @@ export default function MessengerShell() {
     }
   };
 
-  // --- AUTHENTICATION & AVATAR HANDLERS (SSO + PROFILE PHOTO UPDATE + LOGOUT) ---
+  // --- AUTHENTICATION & AVATAR HANDLERS ---
   const handleSSOLoginRedirect = async () => {
     setAuthLoading(true);
     try {
@@ -420,6 +474,7 @@ export default function MessengerShell() {
         });
       } catch {}
 
+      syncPresence(updatedUser);
       triggerNotification('Photo de profil mise à jour 📸', 'Votre nouvelle photo de profil est enregistrée.');
     };
     reader.readAsDataURL(file);
@@ -437,12 +492,15 @@ export default function MessengerShell() {
           const profile = await res.json();
           setCurrentUser(profile);
           localStorage.setItem('messenger_user', JSON.stringify(profile));
+          syncPresence(profile);
           triggerNotification('Photo SSO restaurée', 'La photo de profil de votre compte SSO est utilisée.');
           return;
         }
       } catch {}
     }
-    setCurrentUser((prev) => ({ ...prev, avatarUrl: undefined }));
+    const noAv = { ...currentUser, avatarUrl: undefined };
+    setCurrentUser(noAv);
+    syncPresence(noAv);
   };
 
   const handleSaveProfileInfo = async (e: React.FormEvent) => {
@@ -472,6 +530,7 @@ export default function MessengerShell() {
       if (currentUser.avatarUrl) updated.avatarUrl = currentUser.avatarUrl;
       setCurrentUser(updated);
       localStorage.setItem('messenger_user', JSON.stringify(updated));
+      syncPresence(updated);
       triggerNotification('Profil enregistré ✓', 'Vos informations ont été mises à jour.');
     } catch {}
     setSavingProfile(false);
@@ -499,7 +558,62 @@ export default function MessengerShell() {
     });
     setSelectedRoomId(null);
     setMobileChatOpen(false);
+    syncPresence();
     triggerNotification('Déconnexion réussie', 'Vous avez été déconnecté de votre session Aura.');
+  };
+
+  // --- CONNECT WITH AN ONLINE USER (Message direct ou ajouter en ami) ---
+  const handleStartChatWithOnlineUser = (user: PresenceUser) => {
+    const existing = conversations.find(
+      (c) => c.name.toLowerCase() === user.displayName.toLowerCase() || c.id === `room-user-${user.id}`
+    );
+    if (existing) {
+      openConversation(existing.id);
+      return;
+    }
+
+    const roomId = `room-user-${user.id}`;
+    const newRoom: ConversationRoom = {
+      id: roomId,
+      name: user.displayName,
+      isGroup: false,
+      avatar: user.avatarUrl || '',
+      lastMessage: 'Discussion en ligne démarrée',
+      lastMessageType: 'text',
+      timestamp: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+      unread: 0,
+      online: true,
+      statusText: 'Connecté en même temps',
+    };
+
+    setConversations((prev) => [newRoom, ...prev]);
+    setMessagesByRoom((prev) => ({ ...prev, [roomId]: [] }));
+    openConversation(roomId);
+  };
+
+  const handleAddOnlineUserAsFriend = (user: PresenceUser) => {
+    if (friends.some((f) => f.name.toLowerCase() === user.displayName.toLowerCase())) {
+      triggerNotification('Déjà ami', `${user.displayName} est déjà dans votre liste d'amis.`);
+      return;
+    }
+
+    const roomId = `room-user-${user.id}`;
+    const newFriend: FriendContact = {
+      id: `fr-${Date.now()}`,
+      userId: user.id,
+      name: user.displayName,
+      handle: user.username.startsWith('@') ? user.username : `@${user.username}`,
+      bio: user.bio || 'Connecté sur Aura',
+      activityBadge: 'Connecté maintenant',
+      avatar: user.avatarUrl || '',
+      online: true,
+      favorite: false,
+      letter: user.displayName.charAt(0).toUpperCase(),
+      conversationId: roomId,
+    };
+
+    setFriends((prev) => [...prev, newFriend].sort((a, b) => a.name.localeCompare(b.name)));
+    triggerNotification('Ami ajouté ✨', `${user.displayName} a été ajouté à votre liste d'amis.`);
   };
 
   // --- CONVERSATION & MESSAGING HANDLERS ---
@@ -589,7 +703,6 @@ export default function MessengerShell() {
       setChatInput('');
     }
 
-    // If user mentions @Aura or asks Aura inside a conversation, call real LiteLLM AI
     const lower = content.toLowerCase();
     if (lower.includes('@aura') || lower.startsWith('aura')) {
       try {
@@ -632,7 +745,6 @@ export default function MessengerShell() {
     }
   };
 
-  // Handle Voice Note Recording completion
   const finishVoiceRecording = () => {
     const secs = Math.max(2, recordingSeconds);
     const formatted = `0:${secs < 10 ? `0${secs}` : secs}`;
@@ -643,7 +755,6 @@ export default function MessengerShell() {
     });
   };
 
-  // Handle Image / Photo upload in chat
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -712,7 +823,7 @@ export default function MessengerShell() {
       id: `fr-${Date.now()}`,
       name: newFriendName.trim(),
       handle,
-      bio: 'Contact Aura',
+      bio: 'Ami Aura',
       activityBadge: 'En ligne',
       avatar: '',
       online: true,
@@ -739,7 +850,7 @@ export default function MessengerShell() {
     setNewFriendName('');
     setNewFriendHandle('');
     setAddFriendModalOpen(false);
-    triggerNotification('Contact ajouté', `${created.name} (${created.handle}) a été ajouté.`);
+    triggerNotification('Ami ajouté', `${created.name} (${created.handle}) a été ajouté à vos amis.`);
   };
 
   // --- AURA IA ASSISTANT HANDLERS ---
@@ -766,7 +877,7 @@ export default function MessengerShell() {
         content: m.content,
       }));
 
-      const realContext = `Utilisateur connecté: ${currentUser.displayName} (@${currentUser.username}). Nombre de discussions: ${conversations.length}. Nombre de contacts: ${friends.length}.`;
+      const realContext = `Utilisateur: ${currentUser.displayName} (@${currentUser.username}). Connectés en ce moment: ${onlineUsers.length}. Nombre d'amis: ${friends.length}. Discussions: ${conversations.length}.`;
 
       const res = await fetch('/api/ai/chat', {
         method: 'POST',
@@ -863,7 +974,21 @@ export default function MessengerShell() {
     return true;
   });
 
-  const filteredFriends = friends.filter((f) => {
+  // Confirmed friends with online status synced against real presence
+  const friendsWithOnlineStatus = friends.map((f) => {
+    const isActuallyOnline = onlineUsers.some(
+      (u) =>
+        (f.userId && u.id === f.userId) ||
+        u.displayName.toLowerCase() === f.name.toLowerCase() ||
+        u.username.toLowerCase() === f.handle.replace('@', '').toLowerCase()
+    );
+    return {
+      ...f,
+      online: isActuallyOnline || f.online,
+    };
+  });
+
+  const filteredFriends = friendsWithOnlineStatus.filter((f) => {
     const matchesSearch =
       !friendSearchQuery.trim() ||
       f.name.toLowerCase().includes(friendSearchQuery.toLowerCase()) ||
@@ -883,7 +1008,9 @@ export default function MessengerShell() {
   }, {});
 
   const totalUnreadCount = conversations.reduce((sum, c) => sum + c.unread, 0);
-  const onlineFriendsCount = friends.filter((f) => f.online).length;
+
+  // Other online users connected at the same time (excluding current user)
+  const otherOnlineUsers = onlineUsers.filter((u) => u.id !== currentUser.id);
 
   const formatSeconds = (secs: number) => {
     const m = Math.floor(secs / 60);
@@ -892,7 +1019,7 @@ export default function MessengerShell() {
   };
 
   // ============================================================================
-  // RENDERERS FOR EACH SCREEN (AURA THEME — NO MOCK DATA)
+  // RENDERERS
   // ============================================================================
 
   const renderTopAppHeader = () => (
@@ -941,7 +1068,7 @@ export default function MessengerShell() {
     </header>
   );
 
-  // SCREEN 1: MESSAGES HOME LIST
+  // SCREEN 1: MESSAGES & ONLINE USERS IN LEFT PANEL
   const renderMessagesListScreen = () => (
     <div className="flex flex-col h-full bg-[#F8FAFC] overflow-hidden relative">
       {/* Search Bar */}
@@ -967,60 +1094,145 @@ export default function MessengerShell() {
 
       {/* Scrollable Content */}
       <div className="flex-1 overflow-y-auto pb-24">
-        {/* EN LIGNE EN DIRECT Carousel (Aura IA + Real online contacts) */}
+        {/* EN LIGNE EN DIRECT Carousel (Utilisateurs connectés en même temps) */}
         <div className="px-4 py-3 bg-white border-b border-slate-100">
           <div className="flex items-center justify-between mb-2.5">
-            <span className="text-[11px] font-bold tracking-wider uppercase text-slate-400">
-              EN LIGNE EN DIRECT
-            </span>
-            <span className="text-xs font-semibold text-emerald-600 flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              {onlineFriendsCount + 1} actif(s)
+            <div className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="text-[11px] font-bold tracking-wider uppercase text-slate-600">
+                CONNECTÉS EN DIRECT ({onlineUsers.length})
+              </span>
+            </div>
+            <span className="text-[11px] font-semibold text-emerald-600">
+              Temps réel
             </span>
           </div>
 
           <div className="flex items-center gap-4 overflow-x-auto no-scrollbar pb-1">
-            {ONLINE_STORIES.map((story) => (
+            {/* Aura IA bot */}
+            <button
+              onClick={() => setActiveTab('ai')}
+              className="flex flex-col items-center gap-1.5 shrink-0 group"
+            >
+              <div className="relative">
+                <div className="w-13 h-13 rounded-full p-0.5 bg-gradient-to-tr from-indigo-600 via-violet-500 to-fuchsia-500 shadow-md shadow-indigo-500/20">
+                  <div className="w-full h-full rounded-full bg-gradient-to-br from-indigo-600 to-violet-600 flex items-center justify-center text-white">
+                    <Sparkles className="w-5 h-5" />
+                  </div>
+                </div>
+                <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-indigo-600 text-white flex items-center justify-center ring-2 ring-white shadow">
+                  <Zap className="w-2.5 h-2.5 fill-current" />
+                </span>
+              </div>
+              <span className="text-xs font-semibold text-indigo-600">Aura IA</span>
+            </button>
+
+            {/* Current user badge if authenticated */}
+            {isAuthenticated && (
+              <div className="flex flex-col items-center gap-1.5 shrink-0">
+                <div className="relative">
+                  <div className="w-13 h-13 rounded-full p-0.5 bg-gradient-to-tr from-emerald-500 to-teal-400">
+                    {renderAvatar(currentUser.avatarUrl, currentUser.displayName, 'w-full h-full', 'text-xs')}
+                  </div>
+                  <span className="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full bg-emerald-500 ring-2 ring-white" />
+                </div>
+                <span className="text-xs font-bold text-slate-800 truncate max-w-[68px]">
+                  Vous (Moi)
+                </span>
+              </div>
+            )}
+
+            {/* Real online users connected at the same time */}
+            {otherOnlineUsers.map((user) => (
               <button
-                key={story.id}
-                onClick={() => setActiveTab('ai')}
+                key={user.id}
+                onClick={() => handleStartChatWithOnlineUser(user)}
                 className="flex flex-col items-center gap-1.5 shrink-0 group"
+                title={`Cliquez pour discuter avec ${user.displayName}`}
               >
                 <div className="relative">
-                  <div className="w-14 h-14 rounded-full p-0.5 bg-gradient-to-tr from-indigo-600 via-violet-500 to-fuchsia-500 shadow-md shadow-indigo-500/20">
-                    <div className="w-full h-full rounded-full bg-gradient-to-br from-indigo-600 to-violet-600 flex items-center justify-center text-white">
-                      <Sparkles className="w-6 h-6" />
-                    </div>
+                  <div className="w-13 h-13 rounded-full p-0.5 bg-gradient-to-tr from-indigo-500 to-emerald-400 group-hover:scale-105 transition">
+                    {renderAvatar(user.avatarUrl, user.displayName, 'w-full h-full', 'text-xs')}
                   </div>
-                  <span className="absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center ring-2 ring-white shadow">
-                    <Zap className="w-3 h-3 fill-current" />
-                  </span>
+                  <span className="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full bg-emerald-500 ring-2 ring-white" />
                 </div>
-                <span className="text-xs font-semibold text-indigo-600">{story.name}</span>
+                <span className="text-xs font-medium text-slate-700 truncate max-w-[70px]">
+                  {user.displayName.split(' ')[0]}
+                </span>
               </button>
             ))}
 
-            {friends
-              .filter((f) => f.online)
-              .map((friend) => (
-                <button
-                  key={friend.id}
-                  onClick={() => friend.conversationId && openConversation(friend.conversationId)}
-                  className="flex flex-col items-center gap-1.5 shrink-0"
-                >
-                  <div className="relative">
-                    <div className="w-14 h-14 rounded-full p-0.5 bg-gradient-to-tr from-indigo-500 to-emerald-400 flex items-center justify-center">
-                      {renderAvatar(friend.avatar, friend.name, 'w-full h-full', 'text-sm')}
-                    </div>
-                    <span className="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full bg-emerald-500 ring-2 ring-white" />
-                  </div>
-                  <span className="text-xs font-medium text-slate-700 truncate max-w-[64px]">
-                    {friend.name.split(' ')[0]}
-                  </span>
-                </button>
-              ))}
+            {otherOnlineUsers.length === 0 && (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-2xl bg-slate-50 border border-slate-100 text-slate-400 text-xs shrink-0">
+                <Users className="w-4 h-4 text-slate-300" />
+                <span>En attente d&apos;autres utilisateurs en ligne</span>
+              </div>
+            )}
           </div>
         </div>
+
+        {/* Section: Utilisateurs connectés en direct (liste détaillée) */}
+        {otherOnlineUsers.length > 0 && (
+          <div className="px-4 pt-3 pb-1">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-700 flex items-center gap-1.5">
+                <Activity className="w-3.5 h-3.5 text-indigo-600" />
+                En ligne en même temps ({otherOnlineUsers.length})
+              </span>
+            </div>
+            <div className="space-y-2">
+              {otherOnlineUsers.map((user) => {
+                const isFriend = friends.some((f) => f.name.toLowerCase() === user.displayName.toLowerCase());
+                return (
+                  <div
+                    key={user.id}
+                    className="p-2.5 rounded-2xl bg-white border border-emerald-100/80 shadow-2xs flex items-center justify-between gap-3 hover:border-emerald-300 transition"
+                  >
+                    <div
+                      onClick={() => handleStartChatWithOnlineUser(user)}
+                      className="flex items-center gap-2.5 min-w-0 flex-1 cursor-pointer"
+                    >
+                      <div className="relative shrink-0">
+                        {renderAvatar(user.avatarUrl, user.displayName, 'w-10 h-10', 'text-xs')}
+                        <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-500 ring-2 ring-white" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <h4 className="text-xs font-bold text-slate-900 truncate">
+                            {user.displayName}
+                          </h4>
+                          <span className="text-[10px] text-emerald-600 font-semibold bg-emerald-50 px-1.5 py-0.2 rounded-md">
+                            Actif
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 truncate">@{user.username}</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {!isFriend && (
+                        <button
+                          onClick={() => handleAddOnlineUserAsFriend(user)}
+                          className="p-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 transition"
+                          title="Ajouter en ami"
+                        >
+                          <UserPlus className="w-4 h-4" />
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleStartChatWithOnlineUser(user)}
+                        className="px-2.5 py-1.5 rounded-xl bg-[#5B4FE9] hover:bg-indigo-700 text-white text-xs font-bold inline-flex items-center gap-1 transition"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5" />
+                        Discuter
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Filter Pills */}
         <div className="px-4 py-3 flex items-center gap-2 overflow-x-auto no-scrollbar">
@@ -1032,7 +1244,7 @@ export default function MessengerShell() {
                 : 'bg-white text-slate-600 border border-slate-200/80 hover:bg-slate-50'
             }`}
           >
-            Tous
+            Discussions
             <span
               className={`px-1.5 py-0.2 rounded-full text-[11px] ${
                 msgFilter === 'all' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'
@@ -1057,25 +1269,11 @@ export default function MessengerShell() {
           </button>
 
           <button
-            onClick={() => setActiveTab('ai')}
+            onClick={() => setActiveTab('friends')}
             className="px-3.5 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 shrink-0 bg-white text-slate-700 border border-slate-200/80 hover:border-indigo-300 transition"
           >
-            <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
-            Aura IA
-          </button>
-
-          <button
-            onClick={() => setMsgFilter('friends')}
-            className={`px-3.5 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 shrink-0 transition ${
-              msgFilter === 'friends'
-                ? 'bg-[#5B4FE9] text-white shadow-sm shadow-indigo-500/25'
-                : 'bg-white text-slate-600 border border-slate-200/80 hover:bg-slate-50'
-            }`}
-          >
-            Amis
-            <span className="px-1.5 py-0.2 rounded-full text-[11px] bg-slate-100 text-slate-600">
-              {friends.length}
-            </span>
+            <Users className="w-3.5 h-3.5 text-indigo-600" />
+            Amis ({friends.length})
           </button>
         </div>
 
@@ -1090,7 +1288,7 @@ export default function MessengerShell() {
                 <div>
                   <h3 className="text-xs font-bold text-slate-900">Connectez votre compte SSO</h3>
                   <p className="text-[11px] text-slate-600 mt-0.5">
-                    Synchronisez votre identité et votre photo de profil depuis sso-a.oussamma.tn
+                    Soyez visible en direct par les autres utilisateurs connectés
                   </p>
                 </div>
               </div>
@@ -1104,7 +1302,7 @@ export default function MessengerShell() {
           </div>
         )}
 
-        {/* Conversation Cards List or Clean Empty State */}
+        {/* Conversation Cards List */}
         <div className="px-4 space-y-2.5">
           {filteredConversations.length === 0 ? (
             <div className="p-8 rounded-3xl bg-white border border-slate-200/70 text-center space-y-3 my-2 shadow-2xs">
@@ -1112,9 +1310,9 @@ export default function MessengerShell() {
                 <MessageSquare className="w-6 h-6" />
               </div>
               <div>
-                <h3 className="text-sm font-bold text-slate-900">Aucune conversation</h3>
+                <h3 className="text-sm font-bold text-slate-900">Aucune discussion ouverte</h3>
                 <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">
-                  Créez une nouvelle discussion, ajoutez un contact ou discutez avec l&apos;assistant Aura IA.
+                  Cliquez sur un utilisateur connecté ci-dessus, créez une discussion ou écrivez à Aura IA.
                 </p>
               </div>
               <div className="flex items-center justify-center gap-2 pt-1">
@@ -1124,13 +1322,6 @@ export default function MessengerShell() {
                 >
                   <Plus className="w-4 h-4" />
                   Nouvelle discussion
-                </button>
-                <button
-                  onClick={() => setActiveTab('ai')}
-                  className="px-4 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold inline-flex items-center gap-1.5 transition"
-                >
-                  <Sparkles className="w-4 h-4" />
-                  Aura IA
                 </button>
               </div>
             </div>
@@ -1220,7 +1411,7 @@ export default function MessengerShell() {
           </div>
           <h3 className="text-base font-extrabold text-slate-900">Sélectionnez ou créez une discussion</h3>
           <p className="text-xs text-slate-500 mt-1 max-w-xs">
-            Choisissez une conversation dans la liste ou démarrez un nouvel échange chiffré E2EE.
+            Choisissez un utilisateur connecté ou démarrez une nouvelle conversation.
           </p>
           <button
             onClick={() => setNewChatModalOpen(true)}
@@ -1252,7 +1443,7 @@ export default function MessengerShell() {
               <Sparkles className="w-4 h-4" />
             </div>
             <span className="text-sm font-bold text-slate-800">
-              {room.isGroup ? 'Groupe' : 'Conversation Privée'}
+              {room.isGroup ? 'Groupe' : 'Conversation'}
             </span>
           </div>
 
@@ -1521,19 +1712,19 @@ export default function MessengerShell() {
     );
   };
 
-  // SCREEN 4: AMIS / CONTACTS DIRECTORY (Clean, no mock friends)
+  // SCREEN 4: AMIS SEULEMENT (Exclusive list for friends)
   const renderFriendsScreen = () => (
     <div className="flex flex-col h-full bg-[#F8FAFC] overflow-hidden">
       <div className="px-4 pt-3 pb-2 bg-white flex items-center justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-xl font-extrabold text-slate-900">Amis</h1>
+            <h1 className="text-xl font-extrabold text-slate-900">Mes Amis</h1>
             <span className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 text-xs font-bold">
               {friends.length}
             </span>
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            {onlineFriendsCount} contact(s) connecté(s)
+            Liste exclusive de vos amis ajoutés
           </p>
         </div>
 
@@ -1550,7 +1741,7 @@ export default function MessengerShell() {
             className="px-3.5 py-2 rounded-xl bg-[#5B4FE9] hover:bg-indigo-700 text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-sm shadow-indigo-500/25 transition"
           >
             <UserPlus className="w-3.5 h-3.5" />
-            Ajouter
+            Ajouter un ami
           </button>
         </div>
       </div>
@@ -1563,7 +1754,7 @@ export default function MessengerShell() {
             type="text"
             value={friendSearchQuery}
             onChange={(e) => setFriendSearchQuery(e.target.value)}
-            placeholder="Rechercher par nom ou @pseudo..."
+            placeholder="Rechercher un ami par nom ou @pseudo..."
             className="w-full bg-transparent text-sm text-slate-800 placeholder-slate-400 focus:outline-none"
           />
         </div>
@@ -1577,7 +1768,7 @@ export default function MessengerShell() {
                 : 'bg-slate-100 text-slate-600 hover:bg-slate-200/70'
             }`}
           >
-            Tous <span className="ml-1 opacity-80">{friends.length}</span>
+            Tous mes amis ({friends.length})
           </button>
           <button
             onClick={() => setFriendFilter('online')}
@@ -1588,7 +1779,7 @@ export default function MessengerShell() {
             }`}
           >
             <span className="w-2 h-2 rounded-full bg-emerald-500" />
-            En ligne {onlineFriendsCount}
+            En ligne ({friendsWithOnlineStatus.filter((f) => f.online).length})
           </button>
           <button
             onClick={() => setFriendFilter('favorites')}
@@ -1598,7 +1789,7 @@ export default function MessengerShell() {
                 : 'bg-slate-100 text-slate-600 hover:bg-slate-200/70'
             }`}
           >
-            ⭐ Favoris
+            ⭐ Favoris ({friends.filter((f) => f.favorite).length})
           </button>
           <button
             onClick={() => setFriendFilter('requests')}
@@ -1656,12 +1847,12 @@ export default function MessengerShell() {
         {filteredFriends.length === 0 ? (
           <div className="p-8 rounded-3xl bg-white border border-slate-200/70 text-center space-y-3 shadow-2xs">
             <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-[#5B4FE9] flex items-center justify-center mx-auto">
-              <Users className="w-6 h-6" />
+              <UserCheck className="w-6 h-6" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-slate-900">Aucun contact dans votre liste</h3>
+              <h3 className="text-sm font-bold text-slate-900">Aucun ami dans votre liste</h3>
               <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">
-                Ajoutez vos amis ou collègues de l&apos;écosystème pour démarrer une discussion ou un appel.
+                Ajoutez des utilisateurs connectés ou invitez vos contacts pour les retrouver dans cette liste réservée à vos amis.
               </p>
             </div>
             <button
@@ -1669,7 +1860,7 @@ export default function MessengerShell() {
               className="px-4 py-2 rounded-xl bg-[#5B4FE9] hover:bg-indigo-700 text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-xs transition"
             >
               <UserPlus className="w-4 h-4" />
-              Ajouter un contact
+              Ajouter un ami
             </button>
           </div>
         ) : (
@@ -1703,7 +1894,13 @@ export default function MessengerShell() {
                                 {friend.handle}
                               </span>
                             </div>
-                            <p className="text-xs text-slate-500 truncate">{friend.bio}</p>
+                            <p className="text-xs text-slate-500 truncate">
+                              {friend.online ? (
+                                <span className="text-emerald-600 font-semibold">En ligne en ce moment</span>
+                              ) : (
+                                friend.bio
+                              )}
+                            </p>
                           </div>
                         </div>
 
@@ -1747,7 +1944,7 @@ export default function MessengerShell() {
     </div>
   );
 
-  // SCREEN 5: AURA IA ASSISTANT (Connected to real LiteLLM, no fake messages)
+  // SCREEN 5: AURA IA ASSISTANT
   const renderAIAssistantScreen = () => (
     <div className="flex flex-col h-full bg-[#F8FAFC] overflow-hidden">
       <div className="px-4 py-3 bg-white border-b border-slate-100 flex items-center justify-between shrink-0">
@@ -1928,7 +2125,7 @@ export default function MessengerShell() {
     </div>
   );
 
-  // SCREEN 6: PARAMÈTRES, PHOTO DE PROFIL (SSO + PERSONNALISABLE), CONNEXION / DÉCONNEXION
+  // SCREEN 6: PARAMÈTRES
   const renderSettingsScreen = () => (
     <div className="flex flex-col h-full bg-[#F8FAFC] overflow-y-auto px-4 py-4 space-y-4 pb-24">
       <input
@@ -1939,7 +2136,6 @@ export default function MessengerShell() {
         className="hidden"
       />
 
-      {/* User Profile & Avatar Card */}
       <div className="p-5 rounded-3xl bg-white border border-slate-200/80 shadow-xs space-y-5">
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex flex-col sm:flex-row items-center gap-4 text-center sm:text-left">
@@ -2013,7 +2209,6 @@ export default function MessengerShell() {
           </div>
         </div>
 
-        {/* Edit Profile Form */}
         {isAuthenticated && (
           <form onSubmit={handleSaveProfileInfo} className="pt-4 border-t border-slate-100 space-y-3">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -2055,7 +2250,6 @@ export default function MessengerShell() {
         )}
       </div>
 
-      {/* Authentication & SSO Section */}
       <div className="p-4 rounded-2xl bg-white border border-slate-200/80 space-y-3 shadow-2xs">
         <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400">
           Authentification SSO Oussamma
@@ -2077,7 +2271,6 @@ export default function MessengerShell() {
         </div>
       </div>
 
-      {/* Notifications Settings */}
       <div className="p-4 rounded-2xl bg-white border border-slate-200/80 space-y-3 shadow-2xs">
         <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400">
           Notifications Push & Temps Réel
@@ -2230,7 +2423,7 @@ export default function MessengerShell() {
           }`}
         >
           <Users className="w-5 h-5" />
-          <span className="text-[11px] font-bold">Amis</span>
+          <span className="text-[11px] font-bold">Amis ({friends.length})</span>
         </button>
 
         <button
@@ -2261,7 +2454,7 @@ export default function MessengerShell() {
       </nav>
 
       {/* ========================================================================== */}
-      {/* MODALS: SSO LOGIN / PROFILE PHOTO, ADD FRIEND, NEW CONVERSATION, QR, CALL  */}
+      {/* MODALS                                                                     */}
       {/* ========================================================================== */}
 
       {authModalOpen && (
@@ -2350,7 +2543,7 @@ export default function MessengerShell() {
             className="w-full max-w-sm bg-white rounded-3xl p-6 shadow-2xl border border-slate-100 space-y-4"
           >
             <div className="flex items-center justify-between">
-              <h3 className="text-base font-extrabold text-slate-900">Ajouter un contact</h3>
+              <h3 className="text-base font-extrabold text-slate-900">Ajouter un ami</h3>
               <button
                 type="button"
                 onClick={() => setAddFriendModalOpen(false)}
@@ -2360,7 +2553,7 @@ export default function MessengerShell() {
               </button>
             </div>
             <div>
-              <label className="text-xs font-bold text-slate-600 block mb-1">Nom du contact</label>
+              <label className="text-xs font-bold text-slate-600 block mb-1">Nom de votre ami</label>
               <input
                 type="text"
                 required
@@ -2386,7 +2579,7 @@ export default function MessengerShell() {
               type="submit"
               className="w-full py-2.5 rounded-xl bg-[#5B4FE9] hover:bg-indigo-700 text-white text-xs font-bold shadow-md shadow-indigo-500/20"
             >
-              Ajouter
+              Ajouter à mes amis
             </button>
           </form>
         </div>

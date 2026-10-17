@@ -2,12 +2,25 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { SSOClient, generateCodeVerifier } from '@messenger/auth';
 import { UserProfile } from '@messenger/types';
 
+export interface PresenceUser {
+  id: string;
+  ssoSub: string;
+  matrixUserId: string;
+  displayName: string;
+  username: string;
+  avatarUrl?: string;
+  bio?: string;
+  isOnline: boolean;
+  lastSeenAt: string;
+}
+
 @Injectable()
 export class AuthService {
   private ssoClient: SSOClient;
   private profiles = new Map<string, UserProfile>();
   private activeVerifiers = new Map<string, string>();
-  private activeSessions = new Map<string, string>();
+  private activeSessions = new Map<string, string>(); // token -> userId
+  private lastHeartbeat = new Map<string, number>(); // userId -> timestamp ms
 
   constructor() {
     this.ssoClient = new SSOClient({
@@ -80,7 +93,6 @@ export class AuthService {
       this.profiles.set(userInfo.sub, profile);
     } else {
       profile.displayName = userInfo.name || profile.displayName;
-      // Use SSO avatar unless the user already customized it in Messenger
       if (ssoAvatar && !profile.avatarUrl?.startsWith('data:')) {
         profile.avatarUrl = ssoAvatar;
       }
@@ -89,6 +101,7 @@ export class AuthService {
     }
 
     this.activeSessions.set(tokenResponse.access_token, profile.id);
+    this.lastHeartbeat.set(profile.id, Date.now());
 
     return {
       profile,
@@ -146,11 +159,83 @@ export class AuthService {
 
     const token = `aura_sess_${profile.id}_${Math.random().toString(36).substring(2, 12)}`;
     this.activeSessions.set(token, profile.id);
+    this.lastHeartbeat.set(profile.id, Date.now());
 
     return {
       profile,
       accessToken: token,
     };
+  }
+
+  /**
+   * Heartbeat / Ping from client to maintain online presence
+   */
+  async recordHeartbeat(token?: string, userPayload?: { id?: string; displayName?: string; username?: string; avatarUrl?: string }) {
+    if (!token && !userPayload?.id) return { ok: false };
+
+    let user: UserProfile | undefined;
+    if (token) {
+      user = await this.validateToken(token);
+    } else if (userPayload?.id) {
+      user = this.profiles.get(userPayload.id);
+      if (!user && userPayload.displayName) {
+        const now = new Date().toISOString();
+        user = {
+          id: userPayload.id,
+          ssoSub: userPayload.id,
+          matrixUserId: `@${userPayload.username || userPayload.id}:messenger.oussamma.tn`,
+          displayName: userPayload.displayName,
+          username: userPayload.username || userPayload.id,
+          avatarUrl: userPayload.avatarUrl,
+          bio: 'En ligne',
+          isOnline: true,
+          createdAt: now,
+          updatedAt: now,
+        };
+        this.profiles.set(user.id, user);
+      }
+    }
+
+    if (user && user.id && user.id !== 'guest-session') {
+      user.isOnline = true;
+      if (userPayload?.displayName) user.displayName = userPayload.displayName;
+      if (userPayload?.avatarUrl) user.avatarUrl = userPayload.avatarUrl;
+      this.lastHeartbeat.set(user.id, Date.now());
+      this.profiles.set(user.id, user);
+      return { ok: true, userId: user.id };
+    }
+
+    return { ok: false };
+  }
+
+  /**
+   * Get all users currently connected (heartbeat in the last 45 seconds)
+   */
+  getConnectedUsers(currentUserId?: string): PresenceUser[] {
+    const now = Date.now();
+    const thresholdMs = 45000; // 45 seconds
+    const connected: PresenceUser[] = [];
+
+    for (const [userId, lastTime] of this.lastHeartbeat.entries()) {
+      const profile = this.profiles.get(userId);
+      if (profile && now - lastTime <= thresholdMs) {
+        connected.push({
+          id: profile.id,
+          ssoSub: profile.ssoSub,
+          matrixUserId: profile.matrixUserId,
+          displayName: profile.displayName,
+          username: profile.username,
+          avatarUrl: profile.avatarUrl,
+          bio: profile.bio,
+          isOnline: true,
+          lastSeenAt: new Date(lastTime).toISOString(),
+        });
+      } else if (profile) {
+        profile.isOnline = false;
+      }
+    }
+
+    return connected;
   }
 
   async updateProfile(
@@ -174,6 +259,7 @@ export class AuthService {
         const profile = this.profiles.get(userId);
         if (profile) profile.isOnline = false;
         this.activeSessions.delete(token);
+        this.lastHeartbeat.delete(userId);
       }
     }
     const ssoIssuer = process.env.SSO_ISSUER_URL || 'https://sso-a.oussamma.tn';
@@ -187,7 +273,11 @@ export class AuthService {
     if (token && this.activeSessions.has(token)) {
       const userId = this.activeSessions.get(token)!;
       const profile = this.profiles.get(userId);
-      if (profile) return profile;
+      if (profile) {
+        this.lastHeartbeat.set(userId, Date.now());
+        profile.isOnline = true;
+        return profile;
+      }
     }
 
     if (token) {
@@ -213,11 +303,12 @@ export class AuthService {
           profile.avatarUrl = ssoAvatar;
         }
         this.activeSessions.set(token, profile.id);
+        this.lastHeartbeat.set(profile.id, Date.now());
+        profile.isOnline = true;
         return profile;
       } catch {}
     }
 
-    // If no SSO token yet, return the first registered profile or a clean empty profile
     const first = Array.from(this.profiles.values())[0];
     if (first) return first;
 

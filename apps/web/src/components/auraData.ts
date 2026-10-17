@@ -53,8 +53,21 @@ export interface ConversationRoom {
   smartSuggestions?: Array<{ label: string; replyText: string }>;
 }
 
+export interface PresenceUser {
+  id: string;
+  ssoSub?: string;
+  matrixUserId?: string;
+  displayName: string;
+  username: string;
+  avatarUrl?: string;
+  bio?: string;
+  isOnline: boolean;
+  lastSeenAt?: string;
+}
+
 export interface FriendContact {
   id: string;
+  userId?: string;
   name: string;
   handle: string;
   bio: string;

@@ -2,7 +2,7 @@ import { Controller, Get, Post, Put, Body, Query, Headers, UnauthorizedException
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 
-@ApiTags('Authentification SSO')
+@ApiTags('Authentification & Présence SSO')
 @Controller('api/auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
@@ -35,6 +35,24 @@ export class AuthController {
     }
   ) {
     return this.authService.directLogin(body || {});
+  }
+
+  @Post('heartbeat')
+  @ApiOperation({ summary: 'Signal de présence en ligne (Heartbeat)' })
+  async heartbeat(
+    @Body() body: { id?: string; displayName?: string; username?: string; avatarUrl?: string },
+    @Headers('authorization') authHeader?: string
+  ) {
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : undefined;
+    return this.authService.recordHeartbeat(token, body);
+  }
+
+  @Get('online')
+  @ApiOperation({ summary: 'Lister les utilisateurs connectés en temps réel' })
+  async getOnlineUsers(@Headers('authorization') authHeader?: string) {
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : undefined;
+    const currentUser = token ? await this.authService.validateToken(token) : undefined;
+    return this.authService.getConnectedUsers(currentUser?.id);
   }
 
   @Put('profile')
