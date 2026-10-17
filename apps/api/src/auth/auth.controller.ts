@@ -1,5 +1,5 @@
 import { Controller, Get, Post, Body, Query, Headers, UnauthorizedException } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 
 @ApiTags('Authentification SSO')
@@ -9,8 +9,8 @@ export class AuthController {
 
   @Get('login-url')
   @ApiOperation({ summary: 'Obtenir l\'URL de redirection SSO avec PKCE' })
-  async getLoginUrl() {
-    return this.authService.getLoginUrl();
+  async getLoginUrl(@Query('redirect_uri') redirectUri?: string) {
+    return this.authService.getLoginUrl(redirectUri);
   }
 
   @Post('callback')
@@ -22,13 +22,37 @@ export class AuthController {
     return this.authService.handleCallback(body.code, body.state);
   }
 
+  @Post('login')
+  @ApiOperation({ summary: 'Connexion rapide ou sélection de profil écosystème' })
+  async directLogin(
+    @Body()
+    body: {
+      email?: string;
+      username?: string;
+      displayName?: string;
+      userId?: string;
+    }
+  ) {
+    return this.authService.directLogin(body || {});
+  }
+
+  @Post('logout')
+  @ApiOperation({ summary: 'Déconnexion de la session Messenger et SSO' })
+  async logout(@Headers('authorization') authHeader?: string) {
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : undefined;
+    return this.authService.logout(token);
+  }
+
   @Get('me')
   @ApiOperation({ summary: 'Récupérer le profil connecté' })
-  async me(@Headers('authorization') authHeader: string) {
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      throw new UnauthorizedException('Missing bearer token');
-    }
-    const token = authHeader.split(' ')[1];
+  async me(@Headers('authorization') authHeader?: string) {
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : undefined;
     return this.authService.validateToken(token);
+  }
+
+  @Get('profiles')
+  @ApiOperation({ summary: 'Lister les profils disponibles dans l\'écosystème' })
+  async listProfiles() {
+    return this.authService.getAllProfiles();
   }
 }

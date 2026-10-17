@@ -2,7 +2,7 @@
 
 import React, { Suspense, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Loader2, CheckCircle2, AlertCircle, Sparkles } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,7 +20,7 @@ function AuthCallbackContent() {
 
     if (!code) {
       setStatus('error');
-      setErrorMessage('Aucun code d\'autorisation reçu du SSO.');
+      setErrorMessage("Aucun code d'autorisation reçu du serveur SSO.");
       return;
     }
 
@@ -34,7 +34,7 @@ function AuthCallbackContent() {
 
         if (!res.ok) {
           const err = await res.text();
-          throw new Error(err || 'Échec d\'authentification SSO');
+          throw new Error(err || "Échec d'authentification SSO");
         }
 
         const data = await res.json();
@@ -44,7 +44,7 @@ function AuthCallbackContent() {
         setStatus('success');
         setTimeout(() => {
           router.push('/');
-        }, 800);
+        }, 700);
       } catch (err: any) {
         setStatus('error');
         setErrorMessage(err.message || 'Erreur lors de la validation du jeton SSO.');
@@ -55,34 +55,38 @@ function AuthCallbackContent() {
   }, [router]);
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen px-4 text-center bg-slate-950 text-slate-100">
-      <div className="w-full max-w-sm p-6 bg-slate-900 border border-slate-800 rounded-2xl shadow-xl flex flex-col items-center">
+    <div className="flex flex-col items-center justify-center min-h-screen px-4 text-center bg-[#F8FAFC] text-slate-900">
+      <div className="w-full max-w-sm p-7 bg-white border border-slate-200/80 rounded-3xl shadow-xl shadow-indigo-500/5 flex flex-col items-center">
+        <div className="w-12 h-12 rounded-2xl bg-indigo-600 flex items-center justify-center text-white shadow-md shadow-indigo-500/30 mb-4">
+          <Sparkles className="w-6 h-6" />
+        </div>
+
         {status === 'loading' && (
           <>
-            <Loader2 className="w-12 h-12 text-indigo-500 animate-spin mb-4" />
-            <h2 className="text-lg font-semibold text-white">Connexion SSO en cours...</h2>
-            <p className="text-sm text-slate-400 mt-2">Vérification sécurisée de votre identité</p>
+            <Loader2 className="w-8 h-8 text-indigo-600 animate-spin mb-3" />
+            <h2 className="text-lg font-bold text-slate-900">Connexion SSO Aura...</h2>
+            <p className="text-sm text-slate-500 mt-1">Vérification sécurisée de votre identité OIDC</p>
           </>
         )}
 
         {status === 'success' && (
           <>
-            <CheckCircle2 className="w-12 h-12 text-emerald-400 mb-4" />
-            <h2 className="text-lg font-semibold text-white">Authentification Réussie !</h2>
-            <p className="text-sm text-slate-400 mt-2">Redirection vers vos conversations...</p>
+            <CheckCircle2 className="w-10 h-10 text-emerald-500 mb-3" />
+            <h2 className="text-lg font-bold text-slate-900">Authentification Réussie !</h2>
+            <p className="text-sm text-slate-500 mt-1">Ouverture de vos conversations chiffrées...</p>
           </>
         )}
 
         {status === 'error' && (
           <>
-            <AlertCircle className="w-12 h-12 text-rose-400 mb-4" />
-            <h2 className="text-lg font-semibold text-white">Échec de Connexion</h2>
-            <p className="text-sm text-rose-300 mt-2">{errorMessage}</p>
+            <AlertCircle className="w-10 h-10 text-rose-500 mb-3" />
+            <h2 className="text-lg font-bold text-slate-900">Connexion SSO interrompue</h2>
+            <p className="text-xs text-rose-600 bg-rose-50 px-3 py-2 rounded-xl mt-2 break-all">{errorMessage}</p>
             <button
               onClick={() => router.push('/')}
-              className="mt-6 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-xl text-sm transition"
+              className="mt-5 w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl text-sm transition shadow-sm"
             >
-              Retour à l'accueil
+              Retourner sur Aura Messenger
             </button>
           </>
         )}
@@ -95,9 +99,9 @@ export default function AuthCallbackPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex flex-col items-center justify-center min-h-screen px-4 text-center bg-slate-950 text-slate-100">
-          <Loader2 className="w-12 h-12 text-indigo-500 animate-spin mb-4" />
-          <p className="text-sm text-slate-400">Chargement de la session...</p>
+        <div className="flex flex-col items-center justify-center min-h-screen px-4 text-center bg-[#F8FAFC] text-slate-900">
+          <Loader2 className="w-10 h-10 text-indigo-600 animate-spin mb-3" />
+          <p className="text-sm text-slate-500">Chargement de la session...</p>
         </div>
       }
     >

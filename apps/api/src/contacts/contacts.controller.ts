@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Body, Query, Headers, Param, UnauthorizedException } from '@nestjs/common';
+import { Controller, Get, Post, Put, Body, Query, Headers, Param } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { ContactsService } from './contacts.service';
 import { AuthService } from '../auth/auth.service';
@@ -11,54 +11,51 @@ export class ContactsController {
     private readonly authService: AuthService
   ) {}
 
-  private async getUserId(authHeader: string): Promise<string> {
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      throw new UnauthorizedException('Missing token');
-    }
-    const token = authHeader.split(' ')[1];
+  private async resolveUserId(authHeader?: string): Promise<string> {
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : undefined;
     const user = await this.authService.validateToken(token);
     return user.id;
   }
 
   @Get()
   @ApiOperation({ summary: 'Lister les contacts de l\'utilisateur' })
-  async getContacts(@Headers('authorization') authHeader: string) {
-    const userId = await this.getUserId(authHeader);
+  async getContacts(@Headers('authorization') authHeader?: string) {
+    const userId = await this.resolveUserId(authHeader);
     return this.contactsService.getUserContacts(userId);
   }
 
   @Get('search')
   @ApiOperation({ summary: 'Rechercher des utilisateurs de l\'écosystème' })
-  async search(@Query('q') query: string, @Headers('authorization') authHeader: string) {
-    const userId = await this.getUserId(authHeader);
+  async search(@Query('q') query: string, @Headers('authorization') authHeader?: string) {
+    const userId = await this.resolveUserId(authHeader);
     return this.contactsService.searchVisibleUsers(query || '', userId);
   }
 
   @Post()
   @ApiOperation({ summary: 'Ajouter un contact' })
-  async addContact(@Body() body: { targetUserId: string }, @Headers('authorization') authHeader: string) {
-    const userId = await this.getUserId(authHeader);
+  async addContact(@Body() body: { targetUserId: string }, @Headers('authorization') authHeader?: string) {
+    const userId = await this.resolveUserId(authHeader);
     return this.contactsService.addContact(userId, body.targetUserId);
   }
 
   @Put(':id/favorite')
   @ApiOperation({ summary: 'Basculer le statut favori d\'un contact' })
-  async toggleFavorite(@Param('id') contactId: string, @Headers('authorization') authHeader: string) {
-    const userId = await this.getUserId(authHeader);
+  async toggleFavorite(@Param('id') contactId: string, @Headers('authorization') authHeader?: string) {
+    const userId = await this.resolveUserId(authHeader);
     return this.contactsService.toggleFavorite(userId, contactId);
   }
 
   @Put(':id/block')
   @ApiOperation({ summary: 'Bloquer ou débloquer un contact' })
-  async toggleBlock(@Param('id') contactId: string, @Headers('authorization') authHeader: string) {
-    const userId = await this.getUserId(authHeader);
+  async toggleBlock(@Param('id') contactId: string, @Headers('authorization') authHeader?: string) {
+    const userId = await this.resolveUserId(authHeader);
     return this.contactsService.toggleBlock(userId, contactId);
   }
 
   @Get('groups')
   @ApiOperation({ summary: 'Lister les listes personnelles de contacts' })
-  async getContactLists(@Headers('authorization') authHeader: string) {
-    const userId = await this.getUserId(authHeader);
+  async getContactLists(@Headers('authorization') authHeader?: string) {
+    const userId = await this.resolveUserId(authHeader);
     return this.contactsService.getUserContactLists(userId);
   }
 
@@ -66,9 +63,9 @@ export class ContactsController {
   @ApiOperation({ summary: 'Créer une liste personnelle de contacts (ex: Mes amis)' })
   async createContactList(
     @Body() body: { name: string; description?: string },
-    @Headers('authorization') authHeader: string
+    @Headers('authorization') authHeader?: string
   ) {
-    const userId = await this.getUserId(authHeader);
+    const userId = await this.resolveUserId(authHeader);
     return this.contactsService.createContactList(userId, body.name, body.description);
   }
 
@@ -77,9 +74,9 @@ export class ContactsController {
   async addMemberToList(
     @Param('id') listId: string,
     @Body() body: { memberUserId: string },
-    @Headers('authorization') authHeader: string
+    @Headers('authorization') authHeader?: string
   ) {
-    const userId = await this.getUserId(authHeader);
+    const userId = await this.resolveUserId(authHeader);
     return this.contactsService.addMemberToList(userId, listId, body.memberUserId);
   }
 }

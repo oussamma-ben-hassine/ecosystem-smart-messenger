@@ -4,7 +4,7 @@ import './globals.css';
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: 'Ecosystem Smart Messenger',
+  title: 'Aura — Ecosystem Smart Messenger',
   description: 'Messagerie instantanée intelligente, sécurisée E2EE et connectée à votre écosystème',
   manifest: '/manifest.json',
   icons: {
@@ -13,8 +13,8 @@ export const metadata: Metadata = {
   },
   appleWebApp: {
     capable: true,
-    statusBarStyle: 'black-translucent',
-    title: 'SmartMessenger',
+    statusBarStyle: 'default',
+    title: 'Aura Messenger',
   },
 };
 
@@ -24,7 +24,7 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   viewportFit: 'cover',
-  themeColor: '#0f172a',
+  themeColor: '#F8FAFC',
 };
 
 export default function RootLayout({
@@ -33,8 +33,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="fr" className="dark">
-      <body className="font-sans antialiased bg-slate-950 text-slate-100 min-h-screen">
+    <html lang="fr">
+      <body className="font-sans antialiased bg-[#F8FAFC] text-slate-900 min-h-screen selection:bg-indigo-100 selection:text-indigo-700">
         {children}
       </body>
     </html>

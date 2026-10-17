@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Headers, UnauthorizedException, Param } from '@nestjs/common';
+import { Controller, Post, Body, Headers, Param } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { CallsService } from './calls.service';
 import { AuthService } from '../auth/auth.service';
@@ -15,16 +15,13 @@ export class CallsController {
   @ApiOperation({ summary: 'Obtenir un jeton LiveKit pour rejoindre un appel vocal ou vidéo' })
   async getCallToken(
     @Body() body: { roomName: string; callType: 'audio' | 'video' },
-    @Headers('authorization') authHeader: string
+    @Headers('authorization') authHeader?: string
   ) {
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      throw new UnauthorizedException('Missing token');
-    }
-    const token = authHeader.split(' ')[1];
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : undefined;
     const user = await this.authService.validateToken(token);
 
     return this.callsService.createCallToken(
-      body.roomName,
+      body.roomName || 'aura-room-general',
       user.id,
       user.displayName,
       body.callType || 'audio'
