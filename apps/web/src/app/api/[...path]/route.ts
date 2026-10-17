@@ -12,10 +12,22 @@ async function proxyRequest(request: NextRequest, pathParts: string[]) {
   const searchParams = request.nextUrl.search;
   const targetUrl = `${backendBase}/api/${path}${searchParams}`;
 
+  const hopByHopHeaders = [
+    'host',
+    'connection',
+    'content-length',
+    'keep-alive',
+    'proxy-authenticate',
+    'proxy-authorization',
+    'te',
+    'trailer',
+    'transfer-encoding',
+    'upgrade',
+  ];
+
   const headers = new Headers();
   request.headers.forEach((value, key) => {
-    // Exclude host to avoid mismatch on backend
-    if (key.toLowerCase() !== 'host') {
+    if (!hopByHopHeaders.includes(key.toLowerCase())) {
       headers.set(key, value);
     }
   });
@@ -27,9 +39,17 @@ async function proxyRequest(request: NextRequest, pathParts: string[]) {
 
   if (['POST', 'PUT', 'PATCH'].includes(request.method)) {
     try {
-      const body = await request.arrayBuffer();
-      if (body.byteLength > 0) {
-        fetchOptions.body = body;
+      const contentType = request.headers.get('content-type') || '';
+      if (contentType.includes('application/json') || contentType.includes('text/')) {
+        const text = await request.text();
+        if (text) {
+          fetchOptions.body = text;
+        }
+      } else {
+        const buffer = await request.arrayBuffer();
+        if (buffer && buffer.byteLength > 0) {
+          fetchOptions.body = Buffer.from(buffer);
+        }
       }
     } catch {
       // Body may be empty
