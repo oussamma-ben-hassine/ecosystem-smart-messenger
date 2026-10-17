@@ -11,6 +11,8 @@ export interface UserProfile {
   bio?: string;
   statusMessage?: string;
   isOnline: boolean;
+  roles?: string[];
+  isSuperAdmin?: boolean;
   lastSeenAt?: string;
   createdAt: string;
   updatedAt: string;

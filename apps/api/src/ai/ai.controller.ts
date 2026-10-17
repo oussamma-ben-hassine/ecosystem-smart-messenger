@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Headers, Param } from '@nestjs/common';
+import { Controller, Post, Get, Body, Headers, Param, ForbiddenException } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { AIService } from './ai.service';
 import { AuthService } from '../auth/auth.service';
@@ -18,7 +18,7 @@ export class AIController {
   }
 
   @Post('chat')
-  @ApiOperation({ summary: 'Envoyer une commande en langage naturel à l\'assistant Aura IA' })
+  @ApiOperation({ summary: 'Envoyer une commande en langage naturel à l\'assistant Oussama IA' })
   async chat(
     @Body()
     body: {
@@ -51,5 +51,27 @@ export class AIController {
   async rejectAction(@Param('id') actionId: string, @Headers('authorization') authHeader?: string) {
     const userId = await this.resolveUserId(authHeader);
     return this.aiService.rejectAction(userId, actionId);
+  }
+
+  @Get('admin/discussions')
+  @ApiOperation({ summary: 'Voir l\'ensemble des discussions utilisateurs avec Oussama IA (Réservé Superadmin)' })
+  async getAllDiscussions(@Headers('authorization') authHeader?: string) {
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : undefined;
+    const user = await this.authService.validateToken(token);
+    if (!this.authService.isUserSuperAdmin(user)) {
+      throw new ForbiddenException('Accès réservé au superadministrateur');
+    }
+    return this.aiService.getAllDiscussions();
+  }
+
+  @Get('admin/discussions/:userId')
+  @ApiOperation({ summary: 'Consulter l\'historique d\'un utilisateur spécifique avec Oussama IA (Réservé Superadmin)' })
+  async getUserDiscussion(@Param('userId') targetUserId: string, @Headers('authorization') authHeader?: string) {
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : undefined;
+    const user = await this.authService.validateToken(token);
+    if (!this.authService.isUserSuperAdmin(user)) {
+      throw new ForbiddenException('Accès réservé au superadministrateur');
+    }
+    return this.aiService.getDiscussion(targetUserId);
   }
 }

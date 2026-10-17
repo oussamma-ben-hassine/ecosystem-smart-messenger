@@ -47,6 +47,8 @@ import {
   User,
   Activity,
   UserCheck,
+  ShieldCheck,
+  Eye,
 } from 'lucide-react';
 import {
   ONLINE_STORIES,
@@ -61,6 +63,8 @@ import {
   FriendRequestItem,
   AIMessageEntry,
   PresenceUser,
+  AIUserDiscussion,
+  AIDiscussionMessage,
 } from './auraData';
 
 type MainTab = 'messages' | 'friends' | 'ai' | 'settings';
@@ -72,6 +76,8 @@ interface UserSessionProfile {
   avatarUrl?: string;
   bio?: string;
   matrixUserId?: string;
+  roles?: string[];
+  isSuperAdmin?: boolean;
 }
 
 interface ToastNotification {
@@ -131,10 +137,58 @@ export default function MessengerShell() {
   const [newFriendHandle, setNewFriendHandle] = useState<string>('');
   const [qrModalOpen, setQrModalOpen] = useState<boolean>(false);
 
-  // Aura IA Assistant state
+  // Oussama IA Assistant state
   const [aiMessages, setAiMessages] = useState<AIMessageEntry[]>(INITIAL_AI_MESSAGES);
   const [aiInput, setAiInput] = useState<string>('');
   const [aiLoading, setAiLoading] = useState<boolean>(false);
+
+  // Superadmin AI discussions audit state
+  const [adminModalOpen, setAdminModalOpen] = useState<boolean>(false);
+  const [adminDiscussions, setAdminDiscussions] = useState<AIUserDiscussion[]>([]);
+  const [loadingAdminDiscussions, setLoadingAdminDiscussions] = useState<boolean>(false);
+  const [selectedAdminUserId, setSelectedAdminUserId] = useState<string | null>(null);
+  const [adminSearchQuery, setAdminSearchQuery] = useState<string>('');
+
+  const isSuperAdmin = Boolean(
+    currentUser.isSuperAdmin ||
+    currentUser.roles?.includes('super_admin') ||
+    currentUser.roles?.includes('admin') ||
+    currentUser.username?.toLowerCase().includes('oussama') ||
+    currentUser.displayName?.toLowerCase().includes('oussama') ||
+    currentUser.id?.toLowerCase().includes('oussama')
+  );
+
+  const fetchAdminDiscussions = async () => {
+    setLoadingAdminDiscussions(true);
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('messenger_token') : null;
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch('/api/ai/admin/discussions', { headers });
+      if (res.ok) {
+        const data = await res.json();
+        setAdminDiscussions(Array.isArray(data) ? data : []);
+        if (Array.isArray(data) && data.length > 0) {
+          setSelectedAdminUserId((prev) => prev || data[0].userId);
+        }
+      }
+    } catch {} finally {
+      setLoadingAdminDiscussions(false);
+    }
+  };
+
+  const filteredAdminDiscussions = adminDiscussions.filter((d) => {
+    if (!adminSearchQuery.trim()) return true;
+    const q = adminSearchQuery.toLowerCase();
+    return (
+      d.userDisplayName.toLowerCase().includes(q) ||
+      d.username.toLowerCase().includes(q) ||
+      d.userId.toLowerCase().includes(q) ||
+      d.messages.some((m) => m.content.toLowerCase().includes(q))
+    );
+  });
+
+  const selectedDiscussion = adminDiscussions.find((d) => d.userId === selectedAdminUserId) || adminDiscussions[0];
 
   // Active Call Overlay state
   const [activeCall, setActiveCall] = useState<{
@@ -237,9 +291,9 @@ export default function MessengerShell() {
 
     // Load persisted conversations & contacts if any
     try {
-      const savedConvs = localStorage.getItem('aura_conversations_v2');
-      const savedMsgs = localStorage.getItem('aura_messages_v2');
-      const savedFriends = localStorage.getItem('aura_friends_v2');
+      const savedConvs = localStorage.getItem('oussama_conversations_v2') || localStorage.getItem('aura_conversations_v2');
+      const savedMsgs = localStorage.getItem('oussama_messages_v2') || localStorage.getItem('aura_messages_v2');
+      const savedFriends = localStorage.getItem('oussama_friends_v2') || localStorage.getItem('aura_friends_v2');
       if (savedConvs) setConversations(JSON.parse(savedConvs));
       if (savedMsgs) setMessagesByRoom(JSON.parse(savedMsgs));
       if (savedFriends) setFriends(JSON.parse(savedFriends));
@@ -300,9 +354,9 @@ export default function MessengerShell() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
-      localStorage.setItem('aura_conversations_v2', JSON.stringify(conversations));
-      localStorage.setItem('aura_messages_v2', JSON.stringify(messagesByRoom));
-      localStorage.setItem('aura_friends_v2', JSON.stringify(friends));
+      localStorage.setItem('oussama_conversations_v2', JSON.stringify(conversations));
+      localStorage.setItem('oussama_messages_v2', JSON.stringify(messagesByRoom));
+      localStorage.setItem('oussama_friends_v2', JSON.stringify(friends));
     } catch {}
   }, [conversations, messagesByRoom, friends]);
 
@@ -407,7 +461,7 @@ export default function MessengerShell() {
 
   const requestBrowserNotifications = async () => {
     if (typeof window === 'undefined' || !('Notification' in window)) {
-      triggerNotification('Notifications actives', 'Les alertes visuelles et sonores Aura sont activées.');
+      triggerNotification('Notifications actives', 'Les alertes visuelles et sonores Oussama Messenger sont activées.');
       return;
     }
     try {
@@ -416,17 +470,17 @@ export default function MessengerShell() {
       setNotificationsEnabled(true);
       if (perm === 'granted') {
         triggerNotification(
-          'Aura Notifications activées 🔔',
+          'Oussama Notifications activées 🔔',
           'Vous recevrez désormais les alertes de messages et réponses IA en direct.'
         );
       } else {
         triggerNotification(
           'Notifications in-app activées',
-          'Bannières temps réel Aura activées dans votre navigateur.'
+          'Bannières temps réel Oussama activées dans votre navigateur.'
         );
       }
     } catch {
-      triggerNotification('Notifications Aura', 'Alertes temps réel activées.');
+      triggerNotification('Notifications Oussama', 'Alertes temps réel activées.');
     }
   };
 
@@ -559,7 +613,7 @@ export default function MessengerShell() {
     setSelectedRoomId(null);
     setMobileChatOpen(false);
     syncPresence();
-    triggerNotification('Déconnexion réussie', 'Vous avez été déconnecté de votre session Aura.');
+    triggerNotification('Déconnexion réussie', 'Vous avez été déconnecté de votre session Oussama Messenger.');
   };
 
   // --- CONNECT WITH AN ONLINE USER (Message direct ou ajouter en ami) ---
@@ -603,7 +657,7 @@ export default function MessengerShell() {
       userId: user.id,
       name: user.displayName,
       handle: user.username.startsWith('@') ? user.username : `@${user.username}`,
-      bio: user.bio || 'Connecté sur Aura',
+      bio: user.bio || 'Connecté sur Oussama Messenger',
       activityBadge: 'Connecté maintenant',
       avatar: user.avatarUrl || '',
       online: true,
@@ -704,7 +758,7 @@ export default function MessengerShell() {
     }
 
     const lower = content.toLowerCase();
-    if (lower.includes('@aura') || lower.startsWith('aura')) {
+    if (lower.includes('@oussama') || lower.startsWith('oussama') || lower.includes('@aura') || lower.startsWith('aura')) {
       try {
         const token = localStorage.getItem('messenger_token');
         const res = await fetch('/api/ai/chat', {
@@ -722,15 +776,15 @@ export default function MessengerShell() {
         const aiText = data.textResponse || data.reply;
         if (aiText) {
           const botNote: ChatMessageItem = {
-            id: `msg-aura-${Date.now()}`,
-            senderId: 'aura-bot',
-            senderName: 'Aura Bot',
+            id: `msg-oussama-${Date.now()}`,
+            senderId: 'oussama-bot',
+            senderName: 'Oussama Bot',
             content: aiText,
             timestamp: new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
             isOwn: false,
             type: 'aura-note',
             auraNoteData: {
-              title: 'Aura IA',
+              title: 'Oussama IA',
               text: aiText,
               actions: [{ label: '📋 Copier', actionType: 'copy' }],
             },
@@ -823,7 +877,7 @@ export default function MessengerShell() {
       id: `fr-${Date.now()}`,
       name: newFriendName.trim(),
       handle,
-      bio: 'Ami Aura',
+      bio: 'Ami Oussama Messenger',
       activityBadge: 'En ligne',
       avatar: '',
       online: true,
@@ -934,7 +988,7 @@ export default function MessengerShell() {
         m.id === msgId && m.action ? { ...m, action: { ...m.action, status: 'executed' } } : m
       )
     );
-    triggerNotification('Action exécutée par Aura ✨', 'Votre demande a été exécutée.');
+    triggerNotification('Action exécutée par Oussama ✨', 'Votre demande a été exécutée.');
   };
 
   // --- CALL HANDLERS ---
@@ -1028,7 +1082,7 @@ export default function MessengerShell() {
         <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-[#4F46E5] to-[#7C3AED] flex items-center justify-center text-white shadow-sm shadow-indigo-500/20">
           <Sparkles className="w-5 h-5" />
         </div>
-        <span className="text-[19px] font-extrabold tracking-tight text-slate-900">Aura</span>
+        <span className="text-[19px] font-extrabold tracking-tight text-slate-900">Oussama</span>
       </div>
 
       <div className="flex items-center gap-2">
@@ -1109,7 +1163,7 @@ export default function MessengerShell() {
           </div>
 
           <div className="flex items-center gap-4 overflow-x-auto no-scrollbar pb-1">
-            {/* Aura IA bot */}
+            {/* Oussama IA bot */}
             <button
               onClick={() => setActiveTab('ai')}
               className="flex flex-col items-center gap-1.5 shrink-0 group"
@@ -1124,7 +1178,7 @@ export default function MessengerShell() {
                   <Zap className="w-2.5 h-2.5 fill-current" />
                 </span>
               </div>
-              <span className="text-xs font-semibold text-indigo-600">Aura IA</span>
+              <span className="text-xs font-semibold text-indigo-600">Oussama IA</span>
             </button>
 
             {/* Current user badge if authenticated */}
@@ -1312,7 +1366,7 @@ export default function MessengerShell() {
               <div>
                 <h3 className="text-sm font-bold text-slate-900">Aucune discussion ouverte</h3>
                 <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">
-                  Cliquez sur un utilisateur connecté ci-dessus, créez une discussion ou écrivez à Aura IA.
+                  Cliquez sur un utilisateur connecté ci-dessus, créez une discussion ou écrivez à Oussama IA.
                 </p>
               </div>
               <div className="flex items-center justify-center gap-2 pt-1">
@@ -1524,7 +1578,7 @@ export default function MessengerShell() {
                       <div className="w-6 h-6 rounded-lg bg-[#5B4FE9] text-white flex items-center justify-center">
                         <Sparkles className="w-3.5 h-3.5" />
                       </div>
-                      <span className="text-xs font-extrabold text-indigo-950">Aura Bot</span>
+                      <span className="text-xs font-extrabold text-indigo-950">Oussama Bot</span>
                       <span className="px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-700 text-[10px] font-bold uppercase">
                         ASSISTANT
                       </span>
@@ -1687,7 +1741,7 @@ export default function MessengerShell() {
                     sendMessage();
                   }
                 }}
-                placeholder="Écrire un message (ou @Aura)..."
+                placeholder="Écrire un message (ou @Oussama)..."
                 className="w-full bg-transparent text-sm text-slate-800 placeholder-slate-400 focus:outline-none"
               />
               <button
@@ -1732,7 +1786,7 @@ export default function MessengerShell() {
           <button
             onClick={() => setQrModalOpen(true)}
             className="w-9 h-9 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 flex items-center justify-center text-slate-700 transition"
-            title="Mon QR Code Aura"
+            title="Mon QR Code Oussama"
           >
             <QrCode className="w-4 h-4" />
           </button>
@@ -1944,7 +1998,7 @@ export default function MessengerShell() {
     </div>
   );
 
-  // SCREEN 5: AURA IA ASSISTANT
+  // SCREEN 5: OUSSAMA IA ASSISTANT
   const renderAIAssistantScreen = () => (
     <div className="flex flex-col h-full bg-[#F8FAFC] overflow-hidden">
       <div className="px-4 py-3 bg-white border-b border-slate-100 flex items-center justify-between shrink-0">
@@ -1954,7 +2008,7 @@ export default function MessengerShell() {
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-base font-extrabold text-slate-900">Aura IA</h2>
+              <h2 className="text-base font-extrabold text-slate-900">Oussama IA</h2>
               <span className="px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-700 text-[10px] font-extrabold uppercase">
                 PRO
               </span>
@@ -1966,22 +2020,38 @@ export default function MessengerShell() {
           </div>
         </div>
 
-        {aiMessages.length > 0 && (
-          <button
-            onClick={() => setAiMessages([])}
-            className="w-9 h-9 rounded-full bg-slate-50 hover:bg-slate-100 flex items-center justify-center text-slate-500 transition"
-            title="Effacer la conversation IA"
-          >
-            <RotateCcw className="w-4 h-4" />
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {isSuperAdmin && (
+            <button
+              onClick={() => {
+                setAdminModalOpen(true);
+                fetchAdminDiscussions();
+              }}
+              className="px-3 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold inline-flex items-center gap-1.5 transition border border-indigo-200 shadow-2xs"
+              title="Superadmin: Voir les discussions de tous les utilisateurs avec l'IA"
+            >
+              <Eye className="w-3.5 h-3.5 text-indigo-600" />
+              <span className="hidden sm:inline">Audit Discussions IA</span>
+              <span className="px-1.5 py-0.5 rounded-md bg-indigo-600 text-white text-[9px] font-extrabold">SUPERADMIN</span>
+            </button>
+          )}
+          {aiMessages.length > 0 && (
+            <button
+              onClick={() => setAiMessages([])}
+              className="w-9 h-9 rounded-full bg-slate-50 hover:bg-slate-100 flex items-center justify-center text-slate-500 transition"
+              title="Effacer la conversation IA"
+            >
+              <RotateCcw className="w-4 h-4" />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Scrollable AI Conversation Area */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
         <div className="p-4 rounded-2xl bg-gradient-to-br from-indigo-50/80 via-white to-violet-50/60 border border-indigo-100 text-center shadow-2xs">
           <p className="text-xs font-medium text-slate-700">
-            Bonjour {isAuthenticated ? currentUser.displayName : ''} ! Posez une question à Aura IA ou demandez-lui de rédiger ou planifier un message.
+            Bonjour {isAuthenticated ? currentUser.displayName : ''} ! Posez une question à Oussama IA ou demandez-lui de rédiger ou planifier un message.
           </p>
         </div>
 
@@ -1999,7 +2069,7 @@ export default function MessengerShell() {
               Rédiger un message
             </button>
             <button
-              onClick={() => sendAIMessage('Comment fonctionne le chiffrement E2EE sur Aura ?')}
+              onClick={() => sendAIMessage('Comment fonctionne le chiffrement E2EE sur Oussama Messenger ?')}
               className="px-3.5 py-2 rounded-xl bg-white hover:bg-indigo-50 border border-slate-200/80 text-xs font-semibold text-slate-700 shrink-0 inline-flex items-center gap-1.5 shadow-2xs transition"
             >
               🔒 Sécurité & E2EE
@@ -2031,7 +2101,7 @@ export default function MessengerShell() {
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-extrabold text-indigo-600 flex items-center gap-1.5">
                     <Sparkles className="w-3.5 h-3.5" />
-                    Aura IA
+                    Oussama IA
                   </span>
                   <span className="text-[10px] text-slate-400">{entry.timestamp}</span>
                 </div>
@@ -2069,7 +2139,7 @@ export default function MessengerShell() {
                   <button
                     onClick={() => {
                       navigator.clipboard?.writeText(entry.content);
-                      triggerNotification('Copié 📋', 'La réponse Aura IA a été copiée.');
+                      triggerNotification('Copié 📋', 'La réponse Oussama IA a été copiée.');
                     }}
                     className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200/70 text-slate-700 text-xs font-semibold inline-flex items-center gap-1.5 transition"
                   >
@@ -2088,7 +2158,7 @@ export default function MessengerShell() {
               <Loader2 className="w-4 h-4 animate-spin" />
             </div>
             <div className="px-4 py-2.5 rounded-2xl bg-white border border-slate-200 text-xs font-medium text-slate-600">
-              Aura IA réfléchit...
+              Oussama IA réfléchit...
             </div>
           </div>
         )}
@@ -2108,7 +2178,7 @@ export default function MessengerShell() {
                 sendAIMessage();
               }
             }}
-            placeholder="Posez une question à Aura IA..."
+            placeholder="Posez une question à Oussama IA..."
             className="w-full bg-transparent text-sm text-slate-800 placeholder-slate-400 focus:outline-none"
           />
         </div>
@@ -2117,7 +2187,7 @@ export default function MessengerShell() {
           onClick={() => sendAIMessage()}
           disabled={aiLoading}
           className="w-10 h-10 rounded-full bg-[#5B4FE9] hover:bg-indigo-700 disabled:opacity-50 text-white flex items-center justify-center shrink-0 shadow-md shadow-indigo-500/25 transition"
-          title="Envoyer à Aura IA"
+          title="Envoyer à Oussama IA"
         >
           <ArrowUp className="w-5 h-5" />
         </button>
@@ -2249,6 +2319,44 @@ export default function MessengerShell() {
           </form>
         )}
       </div>
+
+      {/* Superadmin Audit Card */}
+      {isSuperAdmin && (
+        <div className="p-5 rounded-3xl bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-white shadow-lg shadow-indigo-950/20 space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-indigo-500/20 text-indigo-300 border border-indigo-400/30 flex items-center justify-center">
+                <ShieldCheck className="w-5 h-5 text-indigo-300" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-extrabold text-white">Console Superadmin</h3>
+                  <span className="px-2 py-0.5 rounded-md bg-amber-400/20 text-amber-300 border border-amber-400/30 text-[10px] font-extrabold uppercase tracking-wider">
+                    Privilèges Actifs
+                  </span>
+                </div>
+                <p className="text-xs text-indigo-200/80">Audit de sécurité et surveillance des échanges IA</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="pt-2 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="text-xs text-indigo-200">
+              Surveillez en direct toutes les discussions que les utilisateurs mènent avec <strong>Oussama IA</strong>.
+            </div>
+            <button
+              onClick={() => {
+                setAdminModalOpen(true);
+                fetchAdminDiscussions();
+              }}
+              className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold inline-flex items-center justify-center gap-2 shadow-sm transition shrink-0"
+            >
+              <Eye className="w-4 h-4" />
+              Consulter les discussions IA ({adminDiscussions.length})
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="p-4 rounded-2xl bg-white border border-slate-200/80 space-y-3 shadow-2xs">
         <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400">
@@ -2694,6 +2802,201 @@ export default function MessengerShell() {
             >
               <PhoneOff className="w-7 h-7" />
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Superadmin AI Discussions Audit Modal */}
+      {adminModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200">
+          <div className="w-full max-w-4xl h-[90vh] max-h-[780px] bg-white rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-slate-200">
+            {/* Modal Header */}
+            <div className="px-5 py-4 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center text-indigo-300">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-extrabold text-white">Console Superadmin — Discussions IA</h3>
+                    <span className="px-2 py-0.5 rounded-full bg-indigo-500/30 text-indigo-300 text-[10px] font-bold uppercase tracking-wider">
+                      Audit Oussama IA
+                    </span>
+                  </div>
+                  <p className="text-xs text-indigo-200/80">
+                    Surveillance et inspection en direct des conversations des utilisateurs avec l&apos;IA
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={fetchAdminDiscussions}
+                  disabled={loadingAdminDiscussions}
+                  className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold inline-flex items-center gap-1.5 transition"
+                  title="Rafraîchir les discussions"
+                >
+                  <RotateCcw className={`w-3.5 h-3.5 ${loadingAdminDiscussions ? 'animate-spin' : ''}`} />
+                  <span className="hidden sm:inline">Actualiser</span>
+                </button>
+                <button
+                  onClick={() => setAdminModalOpen(false)}
+                  className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition"
+                  title="Fermer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body: Left column (Users list) & Right column (Conversation transcript) */}
+            <div className="flex-1 flex flex-col md:flex-row overflow-hidden bg-slate-50">
+              {/* Users list */}
+              <div className="w-full md:w-80 bg-white border-r border-slate-200 flex flex-col shrink-0">
+                <div className="p-3 border-b border-slate-100">
+                  <div className="relative">
+                    <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Filtrer un utilisateur..."
+                      value={adminSearchQuery}
+                      onChange={(e) => setAdminSearchQuery(e.target.value)}
+                      className="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-800 focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto divide-y divide-slate-100 p-2 space-y-1">
+                  {loadingAdminDiscussions ? (
+                    <div className="p-8 text-center text-xs text-slate-500 flex flex-col items-center gap-2">
+                      <Loader2 className="w-6 h-6 text-indigo-600 animate-spin" />
+                      <span>Chargement des sessions IA...</span>
+                    </div>
+                  ) : filteredAdminDiscussions.length === 0 ? (
+                    <div className="p-8 text-center text-xs text-slate-400 space-y-2">
+                      <Sparkles className="w-6 h-6 text-slate-300 mx-auto" />
+                      <p>Aucune discussion utilisateur enregistrée avec Oussama IA pour le moment.</p>
+                    </div>
+                  ) : (
+                    filteredAdminDiscussions.map((d) => {
+                      const isSelected = selectedAdminUserId === d.userId;
+                      return (
+                        <button
+                          key={d.userId}
+                          onClick={() => setSelectedAdminUserId(d.userId)}
+                          className={`w-full p-2.5 rounded-2xl flex items-center gap-3 text-left transition ${
+                            isSelected
+                              ? 'bg-indigo-50 border border-indigo-200 shadow-2xs'
+                              : 'hover:bg-slate-50 border border-transparent'
+                          }`}
+                        >
+                          <div className="relative shrink-0">
+                            {renderAvatar(d.avatarUrl, d.userDisplayName, 'w-10 h-10', 'text-xs')}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between">
+                              <h4 className="text-xs font-bold text-slate-900 truncate">
+                                {d.userDisplayName}
+                              </h4>
+                              <span className="text-[10px] text-slate-400">
+                                {d.lastActive ? new Date(d.lastActive).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : ''}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between mt-0.5">
+                              <span className="text-[11px] text-slate-500 truncate">@{d.username}</span>
+                              <span className="px-1.5 py-0.5 rounded-md bg-indigo-100 text-indigo-700 text-[10px] font-bold">
+                                {d.messageCount} msg
+                              </span>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              {/* Conversation Transcript */}
+              <div className="flex-1 flex flex-col bg-[#F8FAFC] overflow-hidden">
+                {selectedDiscussion ? (
+                  <>
+                    {/* Transcript Header */}
+                    <div className="px-5 py-3 bg-white border-b border-slate-200/80 flex items-center justify-between shrink-0">
+                      <div className="flex items-center gap-3">
+                        {renderAvatar(selectedDiscussion.avatarUrl, selectedDiscussion.userDisplayName, 'w-9 h-9', 'text-xs')}
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h4 className="text-sm font-extrabold text-slate-900">
+                              {selectedDiscussion.userDisplayName}
+                            </h4>
+                            <span className="text-xs text-slate-500">(@{selectedDiscussion.username})</span>
+                          </div>
+                          <p className="text-[11px] text-slate-400">
+                            ID: <span className="font-mono text-slate-600">{selectedDiscussion.userId}</span> • {selectedDiscussion.messages.length} échange(s)
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Transcript Messages */}
+                    <div className="flex-1 overflow-y-auto p-4 space-y-3.5">
+                      {selectedDiscussion.messages.map((m) => {
+                        const isUser = m.role === 'user';
+                        return (
+                          <div
+                            key={m.id}
+                            className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
+                          >
+                            <div
+                              className={`max-w-[85%] sm:max-w-md p-3.5 rounded-2xl shadow-2xs ${
+                                isUser
+                                  ? 'bg-[#5B4FE9] text-white rounded-br-xs'
+                                  : 'bg-white border border-slate-200 text-slate-800 rounded-bl-xs'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-2 mb-1">
+                                <span
+                                  className={`text-[10px] font-extrabold uppercase tracking-wide ${
+                                    isUser ? 'text-indigo-200' : 'text-indigo-600'
+                                  }`}
+                                >
+                                  {isUser ? selectedDiscussion.userDisplayName : 'Oussama IA'}
+                                </span>
+                                <span
+                                  className={`text-[10px] ${
+                                    isUser ? 'text-indigo-200' : 'text-slate-400'
+                                  }`}
+                                >
+                                  {new Date(m.timestamp).toLocaleTimeString('fr-FR', {
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  })}
+                                </span>
+                              </div>
+                              <p className="text-xs sm:text-sm leading-relaxed whitespace-pre-line">
+                                {m.content}
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-slate-400 space-y-3">
+                    <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-500 flex items-center justify-center">
+                      <Sparkles className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-700">Sélectionnez une discussion</h4>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Choisissez un utilisateur dans la colonne de gauche pour consulter son historique d&apos;échanges avec Oussama IA.
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}

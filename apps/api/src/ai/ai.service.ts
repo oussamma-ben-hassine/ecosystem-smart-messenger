@@ -2,15 +2,37 @@ import { Injectable, BadRequestException, NotFoundException } from '@nestjs/comm
 import { AIConnector, MESSENGER_TOOLS, ChatMessage } from '@messenger/ai-connector';
 import { AIToolExecutionRequest } from '@messenger/types';
 import { ContactsService } from '../contacts/contacts.service';
+import { AuthService } from '../auth/auth.service';
 import { MatrixClientService } from '@messenger/matrix';
+
+export interface AIDiscussionMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
+}
+
+export interface AIUserDiscussion {
+  userId: string;
+  userDisplayName: string;
+  username: string;
+  avatarUrl?: string;
+  lastActive: string;
+  messageCount: number;
+  messages: AIDiscussionMessage[];
+}
 
 @Injectable()
 export class AIService {
   private aiConnector: AIConnector;
   private pendingActions = new Map<string, AIToolExecutionRequest>();
   private matrixService: MatrixClientService;
+  private discussions = new Map<string, AIUserDiscussion>();
 
-  constructor(private readonly contactsService: ContactsService) {
+  constructor(
+    private readonly contactsService: ContactsService,
+    private readonly authService: AuthService
+  ) {
     this.aiConnector = new AIConnector({
       baseUrl: process.env.AI_GATEWAY_URL || 'https://ai.oussamma.tn/v1',
       apiKey: process.env.AI_GATEWAY_KEY || 'sk-oussamma-master-gateway-2026',
@@ -36,11 +58,44 @@ export class AIService {
     reply: string;
     action?: AIToolExecutionRequest;
   }> {
+    // Audit / Session logging for Superadmin view
+    let disc = this.discussions.get(userId);
+    const userProfile = this.authService.getProfile(userId);
+    const displayName = userProfile?.displayName || `Utilisateur ${userId.substring(0, 8)}`;
+    const username = userProfile?.username || userId;
+    const avatarUrl = userProfile?.avatarUrl;
+
+    if (!disc) {
+      disc = {
+        userId,
+        userDisplayName: displayName,
+        username,
+        avatarUrl,
+        lastActive: new Date().toISOString(),
+        messageCount: 0,
+        messages: [],
+      };
+      this.discussions.set(userId, disc);
+    } else {
+      disc.userDisplayName = displayName;
+      disc.username = username;
+      if (avatarUrl) disc.avatarUrl = avatarUrl;
+      disc.lastActive = new Date().toISOString();
+    }
+
+    disc.messages.push({
+      id: `msg-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      role: 'user',
+      content: prompt,
+      timestamp: new Date().toISOString(),
+    });
+    disc.messageCount = disc.messages.length;
+
     const userContacts = this.contactsService.getUserContacts(userId);
     const userGroups = this.contactsService.getUserContactLists(userId);
 
-    const systemPrompt = `Tu es Aura IA PRO, l'assistant intelligent multimodal intégré à Ecosystem Smart Messenger (application de messagerie sécurisée E2EE de l'écosystème Oussamma).
-Tu réponds en français de manière claire, utile et directe, sans jamais inventer de fausses conversations ou de faux contacts qui n'existent pas dans le contexte réel fourni.
+    const systemPrompt = `Tu es Oussama IA, l'assistant intelligent de l'écosystème Oussamma intégré à Smart Messenger (application de messagerie sécurisée E2EE).
+Tu réponds en français de manière claire, utile, courtoise et directe, sans jamais inventer de fausses conversations ou de faux contacts qui n'existent pas dans le contexte réel fourni.
 Contexte réel de l'utilisateur : ${context || 'Aucune discussion sélectionnée.'}
 Groupes de contacts réels de l'utilisateur : ${JSON.stringify(userGroups.map((g) => ({ name: g.name, member_count: g.members.length })))}.
 Contacts réels de l'utilisateur : ${JSON.stringify(userContacts.map((c) => ({ username: c.contactUser.username, name: c.contactUser.displayName })))}.
@@ -119,6 +174,15 @@ Quand l'utilisateur demande d'envoyer un message à une personne ou à un groupe
         message.content ||
         `J'ai préparé l'action demandée (${previewText}). Confirmez-vous l'exécution ?`;
 
+      disc.messages.push({
+        id: `msg-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        role: 'assistant',
+        content: textResponse,
+        timestamp: new Date().toISOString(),
+      });
+      disc.messageCount = disc.messages.length;
+      disc.lastActive = new Date().toISOString();
+
       return {
         textResponse,
         reply: textResponse,
@@ -129,6 +193,15 @@ Quand l'utilisateur demande d'envoyer un message à une personne ou à un groupe
     const content =
       message?.content ||
       'Je suis à votre disposition. Posez-moi une question ou demandez-moi de préparer un message.';
+
+    disc.messages.push({
+      id: `msg-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      role: 'assistant',
+      content,
+      timestamp: new Date().toISOString(),
+    });
+    disc.messageCount = disc.messages.length;
+    disc.lastActive = new Date().toISOString();
 
     return {
       textResponse: content,
@@ -167,5 +240,18 @@ Quand l'utilisateur demande d'envoyer un message à une personne ou à un groupe
     action.status = 'rejected';
     this.pendingActions.set(actionId, action);
     return action;
+  }
+
+  /**
+   * Superadmin inspection methods
+   */
+  getAllDiscussions(): AIUserDiscussion[] {
+    return Array.from(this.discussions.values()).sort(
+      (a, b) => new Date(b.lastActive).getTime() - new Date(a.lastActive).getTime()
+    );
+  }
+
+  getDiscussion(userId: string): AIUserDiscussion | undefined {
+    return this.discussions.get(userId);
   }
 }

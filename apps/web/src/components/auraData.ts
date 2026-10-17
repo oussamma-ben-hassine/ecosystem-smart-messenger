@@ -107,10 +107,27 @@ export interface AIMessageEntry {
   };
 }
 
+export interface AIDiscussionMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
+}
+
+export interface AIUserDiscussion {
+  userId: string;
+  userDisplayName: string;
+  username: string;
+  avatarUrl?: string;
+  lastActive: string;
+  messageCount: number;
+  messages: AIDiscussionMessage[];
+}
+
 export const ONLINE_STORIES = [
   {
-    id: 'story-aura',
-    name: 'Aura IA',
+    id: 'story-oussama',
+    name: 'Oussama IA',
     isAI: true,
     avatar: '',
     online: true,

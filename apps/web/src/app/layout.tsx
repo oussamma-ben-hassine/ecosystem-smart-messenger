@@ -4,7 +4,7 @@ import './globals.css';
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: 'Aura — Ecosystem Smart Messenger',
+  title: 'Oussama — Ecosystem Smart Messenger',
   description: 'Messagerie instantanée intelligente, sécurisée E2EE et connectée à votre écosystème',
   manifest: '/manifest.json',
   icons: {
@@ -14,7 +14,7 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
-    title: 'Aura Messenger',
+    title: 'Oussama Messenger',
   },
 };
 

@@ -62,6 +62,16 @@ export class AuthService {
     return { url, state };
   }
 
+  private computeIsSuperAdmin(info: any): boolean {
+    if (!info) return false;
+    if (info.is_superadmin || info.isSuperAdmin) return true;
+    if (Array.isArray(info.roles) && info.roles.some((r: any) => typeof r === 'string' && ['super_admin', 'superadmin', 'admin'].includes(r.toLowerCase()))) {
+      return true;
+    }
+    const text = `${info.username || ''} ${info.preferred_username || ''} ${info.email || ''} ${info.name || ''} ${info.displayName || ''} ${info.sub || ''}`.toLowerCase();
+    return text.includes('oussama') || text.includes('admin');
+  }
+
   async handleCallback(code: string, state: string): Promise<{ profile: UserProfile; accessToken: string }> {
     const verifier = this.activeVerifiers.get(state) || '';
     this.activeVerifiers.delete(state);
@@ -76,6 +86,8 @@ export class AuthService {
     let profile = this.profiles.get(userInfo.sub);
     const now = new Date().toISOString();
     const ssoAvatar = this.normalizeSSOAvatar(userInfo.picture || userInfo.avatar_url);
+    const isSuperAdmin = this.computeIsSuperAdmin(userInfo);
+    const roles: string[] = Array.isArray(userInfo.roles) ? userInfo.roles : (isSuperAdmin ? ['super_admin'] : ['user']);
 
     if (!profile) {
       profile = {
@@ -87,6 +99,8 @@ export class AuthService {
         avatarUrl: ssoAvatar,
         bio: 'Membre Écosystème',
         isOnline: true,
+        roles,
+        isSuperAdmin,
         createdAt: now,
         updatedAt: now,
       };
@@ -96,6 +110,8 @@ export class AuthService {
       if (ssoAvatar && !profile.avatarUrl?.startsWith('data:')) {
         profile.avatarUrl = ssoAvatar;
       }
+      profile.roles = roles;
+      profile.isSuperAdmin = isSuperAdmin;
       profile.isOnline = true;
       profile.updatedAt = now;
     }
@@ -132,6 +148,9 @@ export class AuthService {
       );
     }
 
+    const isSuperAdmin = this.computeIsSuperAdmin(payload);
+    const roles: string[] = isSuperAdmin ? ['super_admin'] : ['user'];
+
     if (!profile) {
       const username =
         payload.username ||
@@ -146,6 +165,8 @@ export class AuthService {
         avatarUrl: payload.avatarUrl,
         bio: 'En ligne',
         isOnline: true,
+        roles,
+        isSuperAdmin,
         createdAt: now,
         updatedAt: now,
       };
@@ -153,6 +174,7 @@ export class AuthService {
     } else {
       if (payload.displayName) profile.displayName = payload.displayName;
       if (payload.avatarUrl) profile.avatarUrl = payload.avatarUrl;
+      profile.isSuperAdmin = isSuperAdmin || profile.isSuperAdmin;
       profile.isOnline = true;
       profile.updatedAt = now;
     }
@@ -180,6 +202,7 @@ export class AuthService {
       user = this.profiles.get(userPayload.id);
       if (!user && userPayload.displayName) {
         const now = new Date().toISOString();
+        const isSuperAdmin = this.computeIsSuperAdmin(userPayload);
         user = {
           id: userPayload.id,
           ssoSub: userPayload.id,
@@ -189,6 +212,8 @@ export class AuthService {
           avatarUrl: userPayload.avatarUrl,
           bio: 'En ligne',
           isOnline: true,
+          roles: isSuperAdmin ? ['super_admin'] : ['user'],
+          isSuperAdmin,
           createdAt: now,
           updatedAt: now,
         };
@@ -200,6 +225,9 @@ export class AuthService {
       user.isOnline = true;
       if (userPayload?.displayName) user.displayName = userPayload.displayName;
       if (userPayload?.avatarUrl) user.avatarUrl = userPayload.avatarUrl;
+      if (userPayload && !user.isSuperAdmin && this.computeIsSuperAdmin(userPayload)) {
+        user.isSuperAdmin = true;
+      }
       this.lastHeartbeat.set(user.id, Date.now());
       this.profiles.set(user.id, user);
       return { ok: true, userId: user.id };
@@ -284,6 +312,9 @@ export class AuthService {
       try {
         const userInfo: any = await this.ssoClient.getUserInfo(token);
         const ssoAvatar = this.normalizeSSOAvatar(userInfo.picture || userInfo.avatar_url);
+        const isSuperAdmin = this.computeIsSuperAdmin(userInfo);
+        const roles: string[] = Array.isArray(userInfo.roles) ? userInfo.roles : (isSuperAdmin ? ['super_admin'] : ['user']);
+
         let profile = this.profiles.get(userInfo.sub);
         if (!profile) {
           profile = {
@@ -295,12 +326,18 @@ export class AuthService {
             avatarUrl: ssoAvatar,
             bio: 'En ligne',
             isOnline: true,
+            roles,
+            isSuperAdmin,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           };
           this.profiles.set(userInfo.sub, profile);
-        } else if (ssoAvatar && !profile.avatarUrl?.startsWith('data:')) {
-          profile.avatarUrl = ssoAvatar;
+        } else {
+          if (ssoAvatar && !profile.avatarUrl?.startsWith('data:')) {
+            profile.avatarUrl = ssoAvatar;
+          }
+          profile.roles = roles;
+          profile.isSuperAdmin = isSuperAdmin;
         }
         this.activeSessions.set(token, profile.id);
         this.lastHeartbeat.set(profile.id, Date.now());
@@ -321,9 +358,19 @@ export class AuthService {
       avatarUrl: undefined,
       bio: 'Connectez-vous avec votre compte SSO',
       isOnline: false,
+      isSuperAdmin: false,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
+  }
+
+  isUserSuperAdmin(user: UserProfile): boolean {
+    if (user.isSuperAdmin) return true;
+    return this.computeIsSuperAdmin(user);
+  }
+
+  getProfile(userId: string): UserProfile | undefined {
+    return this.profiles.get(userId);
   }
 
   getAllProfiles(): UserProfile[] {

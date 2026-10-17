@@ -64,7 +64,7 @@ function AuthCallbackContent() {
         {status === 'loading' && (
           <>
             <Loader2 className="w-8 h-8 text-indigo-600 animate-spin mb-3" />
-            <h2 className="text-lg font-bold text-slate-900">Connexion SSO Aura...</h2>
+            <h2 className="text-lg font-bold text-slate-900">Connexion SSO Oussama...</h2>
             <p className="text-sm text-slate-500 mt-1">Vérification sécurisée de votre identité OIDC</p>
           </>
         )}
@@ -86,7 +86,7 @@ function AuthCallbackContent() {
               onClick={() => router.push('/')}
               className="mt-5 w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl text-sm transition shadow-sm"
             >
-              Retourner sur Aura Messenger
+              Retourner sur Oussama Messenger
             </button>
           </>
         )}
