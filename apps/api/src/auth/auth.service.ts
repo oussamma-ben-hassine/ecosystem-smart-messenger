@@ -17,102 +17,15 @@ export class AuthService {
       redirectUri: process.env.SSO_REDIRECT_URI || 'https://messenger.oussamma.tn/auth/callback',
       scope: 'openid profile email',
     });
-
-    this.seedDefaultEcosystemProfiles();
   }
 
-  private seedDefaultEcosystemProfiles() {
-    const now = new Date().toISOString();
-    const defaults: UserProfile[] = [
-      {
-        id: 'usr-oussama-1',
-        ssoSub: 'usr-oussama-1',
-        matrixUserId: '@oussama:messenger.oussamma.tn',
-        displayName: 'Oussama Ben Hassine',
-        username: 'oussama',
-        avatarUrl: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
-        bio: 'Architecte SaaS & IA • Disponible',
-        isOnline: true,
-        createdAt: now,
-        updatedAt: now,
-      },
-      {
-        id: 'usr-camille-2',
-        ssoSub: 'usr-camille-2',
-        matrixUserId: '@camille.m:messenger.oussamma.tn',
-        displayName: 'Camille Martin',
-        username: 'camille.m',
-        avatarUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80',
-        bio: 'En voyage à Lisbonne ☀️',
-        isOnline: true,
-        createdAt: now,
-        updatedAt: now,
-      },
-      {
-        id: 'usr-thomas-3',
-        ssoSub: 'usr-thomas-3',
-        matrixUserId: '@thomas.d:messenger.oussamma.tn',
-        displayName: 'Thomas Dubois',
-        username: 'thomas.d',
-        avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
-        bio: 'Ne pas déranger avant 17h 🎯',
-        isOnline: true,
-        createdAt: now,
-        updatedAt: now,
-      },
-      {
-        id: 'usr-sophie-4',
-        ssoSub: 'usr-sophie-4',
-        matrixUserId: '@sophie.l:messenger.oussamma.tn',
-        displayName: 'Sophie Laurent',
-        username: 'sophie.l',
-        avatarUrl: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150&auto=format&fit=crop&q=80',
-        bio: 'Product Designer • En pause ☕',
-        isOnline: true,
-        createdAt: now,
-        updatedAt: now,
-      },
-      {
-        id: 'usr-lucas-5',
-        ssoSub: 'usr-lucas-5',
-        matrixUserId: '@lucas.b:messenger.oussamma.tn',
-        displayName: 'Lucas Bernard',
-        username: 'lucas.b',
-        avatarUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80',
-        bio: 'Disponible pour un appel 📞',
-        isOnline: true,
-        createdAt: now,
-        updatedAt: now,
-      },
-      {
-        id: 'usr-alex-6',
-        ssoSub: 'usr-alex-6',
-        matrixUserId: '@alex.moreau:messenger.oussamma.tn',
-        displayName: 'Alexandre Moreau',
-        username: 'alex.moreau',
-        avatarUrl: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&auto=format&fit=crop&q=80',
-        bio: 'Lead Tech @ Studio',
-        isOnline: false,
-        createdAt: now,
-        updatedAt: now,
-      },
-      {
-        id: 'usr-manon-7',
-        ssoSub: 'usr-manon-7',
-        matrixUserId: '@manon.l:messenger.oussamma.tn',
-        displayName: 'Manon Lefèvre',
-        username: 'manon.l',
-        avatarUrl: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150&auto=format&fit=crop&q=80',
-        bio: 'Photographe freelance 📸',
-        isOnline: false,
-        createdAt: now,
-        updatedAt: now,
-      },
-    ];
-
-    for (const p of defaults) {
-      this.profiles.set(p.id, p);
+  private normalizeSSOAvatar(rawUrl?: string): string | undefined {
+    if (!rawUrl) return undefined;
+    if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://') || rawUrl.startsWith('data:')) {
+      return rawUrl;
     }
+    const ssoIssuer = (process.env.SSO_ISSUER_URL || 'https://sso-a.oussamma.tn').replace(/\/$/, '');
+    return `${ssoIssuer}${rawUrl.startsWith('/') ? '' : '/'}${rawUrl}`;
   }
 
   async getLoginUrl(redirectUri?: string): Promise<{ url: string; state: string }> {
@@ -141,7 +54,7 @@ export class AuthService {
     this.activeVerifiers.delete(state);
 
     const tokenResponse = await this.ssoClient.exchangeCodeForToken(code, verifier);
-    const userInfo = await this.ssoClient.getUserInfo(tokenResponse.access_token);
+    const userInfo: any = await this.ssoClient.getUserInfo(tokenResponse.access_token);
 
     if (!userInfo || !userInfo.sub) {
       throw new UnauthorizedException('Invalid user information received from SSO');
@@ -149,18 +62,17 @@ export class AuthService {
 
     let profile = this.profiles.get(userInfo.sub);
     const now = new Date().toISOString();
+    const ssoAvatar = this.normalizeSSOAvatar(userInfo.picture || userInfo.avatar_url);
 
     if (!profile) {
       profile = {
         id: userInfo.sub,
         ssoSub: userInfo.sub,
         matrixUserId: `@${userInfo.preferred_username || userInfo.sub.substring(0, 8)}:messenger.oussamma.tn`,
-        displayName: userInfo.name || userInfo.preferred_username || 'Oussama Ben Hassine',
+        displayName: userInfo.name || userInfo.preferred_username || 'Utilisateur SSO',
         username: userInfo.preferred_username || `user_${userInfo.sub.substring(0, 8)}`,
-        avatarUrl:
-          userInfo.picture ||
-          'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
-        bio: 'Connecté via SSO Oussamma',
+        avatarUrl: ssoAvatar,
+        bio: 'Membre Écosystème',
         isOnline: true,
         createdAt: now,
         updatedAt: now,
@@ -168,7 +80,10 @@ export class AuthService {
       this.profiles.set(userInfo.sub, profile);
     } else {
       profile.displayName = userInfo.name || profile.displayName;
-      profile.avatarUrl = userInfo.picture || profile.avatarUrl;
+      // Use SSO avatar unless the user already customized it in Messenger
+      if (ssoAvatar && !profile.avatarUrl?.startsWith('data:')) {
+        profile.avatarUrl = ssoAvatar;
+      }
       profile.isOnline = true;
       profile.updatedAt = now;
     }
@@ -186,6 +101,7 @@ export class AuthService {
     username?: string;
     displayName?: string;
     userId?: string;
+    avatarUrl?: string;
   }): Promise<{ profile: UserProfile; accessToken: string }> {
     const now = new Date().toISOString();
     let profile: UserProfile | undefined;
@@ -199,30 +115,31 @@ export class AuthService {
     } else if (payload.email) {
       const localPart = payload.email.split('@')[0].toLowerCase();
       profile = Array.from(this.profiles.values()).find(
-        (p) => p.username.toLowerCase().includes(localPart)
+        (p) => p.username.toLowerCase() === localPart
       );
     }
 
     if (!profile) {
       const username =
         payload.username ||
-        (payload.email ? payload.email.split('@')[0] : 'oussama');
-      const id = `usr-${username}-${Date.now().toString(36)}`;
+        (payload.email ? payload.email.split('@')[0] : 'utilisateur');
+      const id = payload.userId || `usr-${username}`;
       profile = {
         id,
         ssoSub: id,
         matrixUserId: `@${username}:messenger.oussamma.tn`,
-        displayName: payload.displayName || username.charAt(0).toUpperCase() + username.slice(1),
+        displayName: payload.displayName || username,
         username,
-        avatarUrl:
-          'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
-        bio: 'Membre Écosystème Aura',
+        avatarUrl: payload.avatarUrl,
+        bio: 'En ligne',
         isOnline: true,
         createdAt: now,
         updatedAt: now,
       };
       this.profiles.set(id, profile);
     } else {
+      if (payload.displayName) profile.displayName = payload.displayName;
+      if (payload.avatarUrl) profile.avatarUrl = payload.avatarUrl;
       profile.isOnline = true;
       profile.updatedAt = now;
     }
@@ -236,10 +153,26 @@ export class AuthService {
     };
   }
 
+  async updateProfile(
+    token: string | undefined,
+    updates: { displayName?: string; bio?: string; avatarUrl?: string; username?: string }
+  ): Promise<UserProfile> {
+    const profile = await this.validateToken(token);
+    if (updates.displayName !== undefined) profile.displayName = updates.displayName;
+    if (updates.bio !== undefined) profile.bio = updates.bio;
+    if (updates.avatarUrl !== undefined) profile.avatarUrl = updates.avatarUrl;
+    if (updates.username !== undefined) profile.username = updates.username;
+    profile.updatedAt = new Date().toISOString();
+    this.profiles.set(profile.id, profile);
+    return profile;
+  }
+
   async logout(token?: string): Promise<{ success: boolean; ssoLogoutUrl: string }> {
     if (token) {
       const userId = this.activeSessions.get(token);
       if (userId) {
+        const profile = this.profiles.get(userId);
+        if (profile) profile.isOnline = false;
         this.activeSessions.delete(token);
       }
     }
@@ -251,52 +184,55 @@ export class AuthService {
   }
 
   async validateToken(token?: string): Promise<UserProfile> {
-    if (!token) {
-      return this.profiles.get('usr-oussama-1')!;
-    }
-
-    // 1. Check local Aura session tokens
-    if (this.activeSessions.has(token)) {
+    if (token && this.activeSessions.has(token)) {
       const userId = this.activeSessions.get(token)!;
       const profile = this.profiles.get(userId);
       if (profile) return profile;
     }
 
-    if (token.startsWith('aura_sess_')) {
-      const parts = token.split('_');
-      const userId = parts.slice(2, -1).join('_');
-      if (userId && this.profiles.has(userId)) {
-        return this.profiles.get(userId)!;
-      }
-      return this.profiles.get('usr-oussama-1')!;
+    if (token) {
+      try {
+        const userInfo: any = await this.ssoClient.getUserInfo(token);
+        const ssoAvatar = this.normalizeSSOAvatar(userInfo.picture || userInfo.avatar_url);
+        let profile = this.profiles.get(userInfo.sub);
+        if (!profile) {
+          profile = {
+            id: userInfo.sub,
+            ssoSub: userInfo.sub,
+            matrixUserId: `@${userInfo.preferred_username || userInfo.sub}:messenger.oussamma.tn`,
+            displayName: userInfo.name || userInfo.preferred_username || 'Utilisateur SSO',
+            username: userInfo.preferred_username || `user_${userInfo.sub.substring(0, 8)}`,
+            avatarUrl: ssoAvatar,
+            bio: 'En ligne',
+            isOnline: true,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+          this.profiles.set(userInfo.sub, profile);
+        } else if (ssoAvatar && !profile.avatarUrl?.startsWith('data:')) {
+          profile.avatarUrl = ssoAvatar;
+        }
+        this.activeSessions.set(token, profile.id);
+        return profile;
+      } catch {}
     }
 
-    // 2. Validate against SSO userinfo endpoint
-    try {
-      const userInfo = await this.ssoClient.getUserInfo(token);
-      let profile = this.profiles.get(userInfo.sub);
-      if (!profile) {
-        profile = {
-          id: userInfo.sub,
-          ssoSub: userInfo.sub,
-          matrixUserId: `@${userInfo.preferred_username || userInfo.sub}:messenger.oussamma.tn`,
-          displayName: userInfo.name || userInfo.preferred_username || 'Oussama Ben Hassine',
-          username: userInfo.preferred_username || `user_${userInfo.sub.substring(0, 8)}`,
-          avatarUrl:
-            userInfo.picture ||
-            'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
-          isOnline: true,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
-        this.profiles.set(userInfo.sub, profile);
-      }
-      this.activeSessions.set(token, profile.id);
-      return profile;
-    } catch {
-      // Fallback to default active user so features never crash with 401
-      return this.profiles.get('usr-oussama-1')!;
-    }
+    // If no SSO token yet, return the first registered profile or a clean empty profile
+    const first = Array.from(this.profiles.values())[0];
+    if (first) return first;
+
+    return {
+      id: 'guest-session',
+      ssoSub: 'guest-session',
+      matrixUserId: '@invite:messenger.oussamma.tn',
+      displayName: 'Non connecté',
+      username: 'invite',
+      avatarUrl: undefined,
+      bio: 'Connectez-vous avec votre compte SSO',
+      isOnline: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
   }
 
   getAllProfiles(): UserProfile[] {

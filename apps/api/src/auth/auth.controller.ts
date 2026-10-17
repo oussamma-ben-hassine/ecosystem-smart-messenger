@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Query, Headers, UnauthorizedException } from '@nestjs/common';
+import { Controller, Get, Post, Put, Body, Query, Headers, UnauthorizedException } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 
@@ -23,7 +23,7 @@ export class AuthController {
   }
 
   @Post('login')
-  @ApiOperation({ summary: 'Connexion rapide ou sélection de profil écosystème' })
+  @ApiOperation({ summary: 'Connexion ou synchronisation de profil' })
   async directLogin(
     @Body()
     body: {
@@ -31,9 +31,26 @@ export class AuthController {
       username?: string;
       displayName?: string;
       userId?: string;
+      avatarUrl?: string;
     }
   ) {
     return this.authService.directLogin(body || {});
+  }
+
+  @Put('profile')
+  @ApiOperation({ summary: 'Mettre à jour le profil utilisateur et la photo de profil' })
+  async updateProfile(
+    @Body()
+    body: {
+      displayName?: string;
+      bio?: string;
+      avatarUrl?: string;
+      username?: string;
+    },
+    @Headers('authorization') authHeader?: string
+  ) {
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : undefined;
+    return this.authService.updateProfile(token, body || {});
   }
 
   @Post('logout')
@@ -51,7 +68,7 @@ export class AuthController {
   }
 
   @Get('profiles')
-  @ApiOperation({ summary: 'Lister les profils disponibles dans l\'écosystème' })
+  @ApiOperation({ summary: 'Lister les profils réels inscrits dans l\'écosystème' })
   async listProfiles() {
     return this.authService.getAllProfiles();
   }
