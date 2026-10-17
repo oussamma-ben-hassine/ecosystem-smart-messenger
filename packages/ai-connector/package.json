@@ -1,0 +1,10 @@
+{
+  "name": "@messenger/ai-connector",
+  "version": "1.0.0",
+  "description": "LiteLLM AI connector & Tool Orchestration for Ecosystem Smart Messenger",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "dependencies": {
+    "@messenger/types": "1.0.0"
+  }
+}

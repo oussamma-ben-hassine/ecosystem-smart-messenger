@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  messenger-web:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.web
+    image: messenger-web:latest
+    restart: always
+    environment:
+      - PORT=3000
+      - NODE_ENV=production
+      - API_INTERNAL_URL=http://messenger-api:4000
+      - NEXT_PUBLIC_API_URL=https://messenger.oussamma.tn/api
+      - NEXT_PUBLIC_SSO_URL=https://sso-a.oussamma.tn
+      - NEXT_PUBLIC_DRIVE_URL=https://drive.oussamma.tn
+    ports:
+      - "3000"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/manifest.json"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - coolify
+
+  messenger-api:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.api
+    image: messenger-api:latest
+    restart: always
+    environment:
+      - PORT=4000
+      - NODE_ENV=production
+      - SSO_ISSUER_URL=https://sso-a.oussamma.tn
+      - SSO_CLIENT_ID=client_messenger_app
+      - SSO_CLIENT_SECRET=${SSO_CLIENT_SECRET:-sec_messenger_default}
+      - SSO_REDIRECT_URI=https://messenger.oussamma.tn/auth/callback
+      - AI_GATEWAY_URL=https://ai.oussamma.tn/v1
+      - AI_GATEWAY_KEY=sk-oussamma-master-gateway-2026
+      - AI_DEFAULT_MODEL=gpt-4o
+      - DRIVE_BASE_URL=https://drive.oussamma.tn
+      - LIVEKIT_URL=wss://messenger.oussamma.tn/livekit
+      - LIVEKIT_API_KEY=devkey
+      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET:-secret}
+    ports:
+      - "4000"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4000/api/admin/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - coolify
+
+networks:
+  coolify:
+    external: true

@@ -1,0 +1,19 @@
+{
+  "name": "ecosystem-smart-messenger",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build:web": "npm run build --workspace=@messenger/web",
+    "build:api": "npm run build --workspace=@messenger/api",
+    "build": "npm run build:api && npm run build:web",
+    "start:web": "npm run start --workspace=@messenger/web",
+    "start:api": "npm run start:prod --workspace=@messenger/api"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
